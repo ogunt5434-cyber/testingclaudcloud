@@ -1,12 +1,14 @@
 // Persistence: new game, (de)serialization with validation/defaults, and storage access that never throws.
+// Each stored save carries a revision number (`saveRev`, outside GameState) so a stale Game instance,
+// e.g. an old browser tab, can notice that someone else saved since and refuse to overwrite it.
 import { HEROIC_PITY, MAX_HEROES, MAX_STARS, TEAM_SIZE } from './constants';
 import { autoFormationSlots } from './formation';
-import { levelCap, PLAYER_MAX_LEVEL } from './progression';
-import { createHero } from './summon';
+import { compactRewards, levelCap, PLAYER_MAX_LEVEL } from './progression';
+import { createHero, UID_LIMIT } from './summon';
 import { EQUIP_SLOTS } from './types';
 import { getEquipDef, isEquipId } from '../data/equipment';
-import { isHeroId, STARTER_HERO_IDS } from '../data/heroes';
-import type { EquipSlot, GameState, HeroInstance, Resources } from './types';
+import { getHeroDef, isHeroId, STARTER_HERO_IDS } from '../data/heroes';
+import type { EquipSlot, GameState, HeroInstance, Resources, Rewards } from './types';
 
 export const SAVE_KEY = 'diyar-kahramanlari-save';
 export const SAVE_VERSION = 1;
@@ -55,8 +57,9 @@ export function newGameState(now: number): GameState {
   return state;
 }
 
-export function serialize(state: GameState): string {
-  return JSON.stringify(state);
+/** JSON for storage; `rev` (the save revision) is stored next to the state fields when given. */
+export function serialize(state: GameState, rev?: number): string {
+  return JSON.stringify(rev === undefined ? state : { ...state, saveRev: rev });
 }
 
 // ---------------------------------------------------------------------------
@@ -91,7 +94,9 @@ function readEquipment(v: unknown): HeroInstance['equipment'] {
 function readHero(v: unknown): HeroInstance | null {
   if (!isObj(v) || typeof v.uid !== 'string' || v.uid === '') return null;
   if (typeof v.heroId !== 'string' || !isHeroId(v.heroId)) return null;
-  const stars = int(v.stars, 1, 1, MAX_STARS);
+  // Heroes are summoned at their natural rarity and only star up (SPEC §2): never below it.
+  const rarity = getHeroDef(v.heroId).rarity;
+  const stars = int(v.stars, rarity, rarity, MAX_STARS);
   return {
     uid: v.uid,
     heroId: v.heroId,
@@ -151,14 +156,41 @@ function readFormation(v: unknown, heroes: HeroInstance[]): (string | null)[] {
   return used.size > 0 ? slots : autoFormationSlots(heroes);
 }
 
-/** Smallest uid counter that cannot collide with existing "h<n>" uids. */
+/**
+ * Smallest uid counter that cannot collide with existing "h<n>" uids. Values at or above UID_LIMIT (only
+ * possible in crafted/corrupt saves) are ignored so the counter stays exact and summoning can't stall.
+ */
 function safeNextUid(stored: unknown, heroes: HeroInstance[]): number {
   let next = int(stored, 1, 1);
+  if (next >= UID_LIMIT) next = 1;
   for (const h of heroes) {
     const m = /^h(\d+)$/.exec(h.uid);
-    if (m) next = Math.max(next, Number(m[1]) + 1);
+    const n = m ? Number(m[1]) : NaN;
+    if (n < UID_LIMIT - 1) next = Math.max(next, n + 1);
   }
   return next;
+}
+
+function readRewards(v: unknown): Rewards {
+  const src = isObj(v) ? v : {};
+  return compactRewards({
+    resources: (isObj(src.resources) ? src.resources : {}) as Partial<Resources>,
+    playerExp: num(src.playerExp, 0),
+    equipment: (isObj(src.equipment) ? src.equipment : {}) as Record<string, number>,
+  });
+}
+
+function readCampaign(v: unknown, now: number): GameState['campaign'] {
+  const src = isObj(v) ? v : {};
+  const campaign: GameState['campaign'] = { cleared: int(src.cleared, 0), idleSince: num(src.idleSince, now) };
+  const bank = isObj(src.idleBank) ? src.idleBank : null;
+  if (bank && typeof bank.until === 'number' && Number.isFinite(bank.until)) {
+    campaign.idleBank = { until: bank.until, rewards: readRewards(bank.rewards) };
+  }
+  if (typeof src.idlePaidUntil === 'number' && Number.isFinite(src.idlePaidUntil)) {
+    campaign.idlePaidUntil = src.idlePaidUntil;
+  }
+  return campaign;
 }
 
 function readPlayer(v: unknown): GameState['player'] {
@@ -183,7 +215,6 @@ export function deserialize(raw: string | null, now: number = Date.now()): GameS
   if (!isObj(data)) return null;
   const heroes = readHeroes(data.heroes);
   if (heroes.length === 0) return null; // unplayable without heroes: treat as corrupt
-  const campaign = isObj(data.campaign) ? data.campaign : {};
   const tower = isObj(data.tower) ? data.tower : {};
   const summon = isObj(data.summon) ? data.summon : {};
   const createdAt = num(data.createdAt, now);
@@ -196,7 +227,7 @@ export function deserialize(raw: string | null, now: number = Date.now()): GameS
     heroes,
     equipment: readStock(data.equipment),
     formation: readFormation(data.formation, heroes),
-    campaign: { cleared: int(campaign.cleared, 0), idleSince: num(campaign.idleSince, now) },
+    campaign: readCampaign(data.campaign, now),
     tower: { cleared: int(tower.cleared, 0) },
     summon: {
       heroicPity: int(summon.heroicPity, 0, 0, HEROIC_PITY - 1),
@@ -206,23 +237,54 @@ export function deserialize(raw: string | null, now: number = Date.now()): GameS
   };
 }
 
-/** storage may be null/throwing (private mode) — never throw. */
-export function loadGame(storage: Storage | null, now: number): GameState {
-  let raw: string | null = null;
+/** The stored save text, or null (no storage, no save, or storage that throws). Never throws. */
+function readRaw(storage: Storage | null): string | null {
   try {
-    raw = storage ? storage.getItem(SAVE_KEY) : null;
+    return storage ? storage.getItem(SAVE_KEY) : null;
   } catch {
-    raw = null;
+    return null;
   }
-  return deserialize(raw, now) ?? newGameState(now);
 }
 
-export function saveGame(storage: Storage | null, state: GameState): void {
-  if (!storage) return;
+/** Revision of a stored save text: 0 for saves written without one, null when there is no readable save. */
+function revOf(raw: string | null): number | null {
+  if (typeof raw !== 'string' || raw === '') return null;
   try {
-    storage.setItem(SAVE_KEY, serialize(state));
+    const data: unknown = JSON.parse(raw);
+    return isObj(data) ? int(data.saveRev, 0) : null;
   } catch {
-    // Storage full or unavailable (private mode): the game keeps running in memory.
+    return null;
+  }
+}
+
+/** Revision of the save currently in storage (null if there is none or it can't be read). Never throws. */
+export function storedSaveRev(storage: Storage | null): number | null {
+  return revOf(readRaw(storage));
+}
+
+/** storage may be null/throwing (private mode) — never throw. */
+export function loadGame(storage: Storage | null, now: number): GameState {
+  return loadSave(storage, now).state;
+}
+
+/** Like loadGame, plus the revision of the save it was read from (0 for a new game). */
+export function loadSave(storage: Storage | null, now: number): { state: GameState; rev: number } {
+  const raw = readRaw(storage);
+  const state = deserialize(raw, now);
+  return state ? { state, rev: revOf(raw) ?? 0 } : { state: newGameState(now), rev: 0 };
+}
+
+/**
+ * Writes the save (with revision `rev` when given). Returns false when nothing was written: no storage,
+ * or it threw (full quota, private mode). Never throws; the game keeps running in memory either way.
+ */
+export function saveGame(storage: Storage | null, state: GameState, rev?: number): boolean {
+  if (!storage) return false;
+  try {
+    storage.setItem(SAVE_KEY, serialize(state, rev));
+    return true;
+  } catch {
+    return false;
   }
 }
 

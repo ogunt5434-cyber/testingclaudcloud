@@ -6,6 +6,7 @@ import { button, emptyState, heroCard } from '../components';
 import { safely, type Screen, type Ui } from '../context';
 import { h, mount } from '../dom';
 import { openFormation } from '../modals/formation';
+import { starUpReadyUids } from '../hints';
 import { openHeroDetail } from '../modals/heroDetail';
 
 type Filter = Faction | 'all';
@@ -21,7 +22,13 @@ export function createHeroesScreen(ui: Ui): Screen {
         {
           class: ['filter-chip', filter === value && 'active'],
           style: { '--fc': color ?? null },
-          attrs: { type: 'button', 'aria-pressed': filter === value ? 'true' : 'false', title: value === 'all' ? 'Tümü' : FACTION_INFO[value].name },
+          attrs: {
+            type: 'button',
+            'aria-pressed': filter === value ? 'true' : 'false',
+            title: value === 'all' ? 'Tümü' : FACTION_INFO[value].name,
+            // Icon-only chips: name them by faction, not by their emoji.
+            'aria-label': value === 'all' ? null : FACTION_INFO[value].name,
+          },
           onClick: () => {
             filter = value;
             render();
@@ -43,6 +50,7 @@ export function createHeroesScreen(ui: Ui): Screen {
     const shown = filter === 'all' ? all : all.filter((hero) => getHeroDef(hero.heroId).faction === filter);
     const order = shown.map((hero) => hero.uid);
     const team = new Set(game.state.formation.filter((uid): uid is string => !!uid));
+    const ready = safely(() => starUpReadyUids(game.state), new Set<string>());
     mount(
       el,
       h(
@@ -62,6 +70,7 @@ export function createHeroesScreen(ui: Ui): Screen {
               heroCard(hero, {
                 power: safely(() => game.heroPower(hero.uid), 0),
                 inFormation: team.has(hero.uid),
+                upgradable: ready.has(hero.uid),
                 onClick: () => openHeroDetail(ui, hero.uid, order),
               }),
             ),

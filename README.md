@@ -31,7 +31,10 @@ npm run preview    # derlenmiş sürümü yerelde sun
 ```
 
 Kayıt tarayıcının `localStorage` alanında tutulur (`diyar-kahramanlari-save`). Oyunu sıfırlamak için
-sağ üstteki ⚙️ **Ayarlar → Oyunu Sıfırla** düğmesini kullan.
+sağ üstteki ⚙️ **Ayarlar → Oyunu Sıfırla** düğmesini kullan. Oyun iki sekmede açıksa, başka bir sekme daha
+yeni bir kayıt yazdığında eski sekme kaydetmeyi bırakır ve üstte **Sayfayı Yenile** uyarısı gösterir (böylece
+eski sekme yeni ilerlemenin üzerine yazamaz). Tarayıcı kaydetmeye izin vermiyorsa (ör. depolama dolu) de üstte
+bir uyarı çıkar.
 
 Denge simülasyonunun tablosunu görmek için:
 
@@ -67,10 +70,12 @@ src/
     heroes.ts          30 kahramanın tanımları (statlar, aktif ve pasif yetenekler)
     equipment.ts       4 yuva × 6 kademe ekipman
   ui/
-    app.ts             Üst çubuk, sekme çubuğu, ekran geçişleri
+    app.ts             Üst çubuk, kayıt uyarısı, sekme çubuğu, ekran geçişleri
     screens/           Kampanya, Kahramanlar, Çağır, Kule ekranları
     modals/            Savaş, sonuç, takım düzeni, kahraman detayı, çağrı sonucu, ayarlar
     battle/            Savaş oynatımı: olay modeli, zamanlama, görsel efektler
+    overlay.ts         Pencere (modal) yığını; modalGuards.ts: geri tuşu, çift dokunma kalkanı
+    hints.ts           Yıldız yükseltme işaretleri, hesap seviyesi ve kayıt uyarıları
     components.ts …    Ortak parçalar (portre, kart, düğme, ödül listesi), biçimlendirme, bildirimler
 tests/                 Vitest testleri (içerik, savaş + fuzz, sistemler, kayıt, denge, arayüz mantığı)
 ```
@@ -101,7 +106,8 @@ Her grupta her sınıftan bir kahraman vardır.
 ### Takım ve savaş
 
 - Takım 6 yuvadan oluşur: **2 ön sıra** ve **4 arka sıra**. Normal saldırılar önce ön sırayı hedefler,
-  bu yüzden dayanıklı savaşçıları öne koy. **Takım → Otomatik** en güçlü 6 kahramanı yerleştirir.
+  bu yüzden dayanıklı savaşçıları öne koy. **Takım → Otomatik** en güçlü 6 kahramanı yerleştirir; ön sırada
+  yalnızca 2 yer olduğu için en güçlü iki savaşçıdan sonrakiler seçimde güçlerinin %80'iyle sayılır.
 - Savaşlar otomatiktir ve en fazla **15 tur** sürer. Her turda birimler **hıza** göre sırayla hareket eder.
   15 tur sonunda iki taraf da ayaktaysa savunan taraf kazanır.
 - **Enerji:** Her kahraman savaşa 50 enerjiyle başlar. Normal saldırı +50, hasar almak +10 enerji verir
@@ -117,8 +123,11 @@ Her grupta her sınıftan bir kahraman vardır.
 - Her bölüm 10 aşamadır; her 10. aşama güçlü bir **bölüm sonu** savaşıdır. İlk geçişte altın, ruh özü,
   elmas ve hesap deneyimi kazanırsın; bölüm sonlarında ve her 5. aşamada parşömen de düşer.
 - **Ganimet Sandığı** çevrimdışıyken bile dolar: altın, ruh özü, hesap deneyimi, temel parşömen ve
-  ekipman. Gelir, geçtiğin en yüksek aşamayla artar; sandık en fazla **12 saat** biriktirir, ardından
-  **Topla** ile alınmalıdır.
+  ekipman. Gelir, geçtiğin en yüksek aşamayla artar; sandık son toplamadan itibaren en fazla **12 saat**
+  biriktirir, ardından **Topla** ile alınmalıdır. Ne sıklıkla topladığın toplam kazancı değiştirmez.
+- Sandık dolarken yeni bir aşama geçersen, o ana kadar biriken ganimet eski aşamanın oranıyla sandıkta
+  saklanır; yeni oran yalnızca sonraki saatlere uygulanır. Cihaz saati ileri/geri alınırsa sandık donmaz,
+  ama aynı süre iki kez ödenmez.
 - Hesap seviyesi atladıkça elmas kazanırsın.
 
 ### Kahraman gelişimi
@@ -155,12 +164,15 @@ Her grupta her sınıftan bir kahraman vardır.
 `npm test` şunları kapsar:
 
 - **İçerik:** kimliklerin/isimlerin benzersizliği, stat aralıkları, yetenek yapısı ve açıklamalardaki sayıların
-  gerçek değerlerle eşleşmesi
+  gerçek değerlerle eşleşmesi; ayrıca gerçek motorla binlerce savaşlık bir kahraman dengesi koruması (her kahraman
+  kendi nadirlik ortalamasına yakın, zaman aşımı ve kontrol kilidi seyrek, pasiflerin ölçülebilir etkisi var)
 - **Savaş:** formüller, durum etkileri, pasif tetikleme sırası; ayrıca yüzlerce rastgele savaşta değişmezleri
   denetleyen bir fuzz testi (determinizm, can hesabı, ölülerin hareket etmemesi…)
-- **Sistemler:** seviye/yıldız/ekipman akışları, çağrı oranları ve garanti, boşta gelir, kayıt dayanıklılığı
+- **Sistemler:** seviye/yıldız/ekipman akışları, çağrı oranları ve garanti, boşta gelir (saat oynamaları dahil),
+  kayıt dayanıklılığı ve çoklu sekme koruması, otomatik dizilimin gerçek savaşta daha güçlü takımı seçmesi
 - **Denge:** gerçek savaş motoruyla 168 saatlik oyuncu simülasyonu ve ilerleme hedefleri
-- **Arayüz mantığı:** biçimlendirme ve savaş oynatım modelinin motorla birebir uyumu
+- **Arayüz mantığı:** biçimlendirme, savaş oynatım modelinin motorla birebir uyumu (güçlendirme bitişleri dahil),
+  oynatma hızı, pencere (modal) yığını, geri tuşu ve odak yönetimi, sayfa kabuğu (yakınlaştırma izni)
 
 ## Sonraki adımlar
 

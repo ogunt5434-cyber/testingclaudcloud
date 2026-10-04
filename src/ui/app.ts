@@ -7,6 +7,7 @@ import type { ResourceKey } from '../core/types';
 import { safely, type Screen, type TabId, type Ui } from './context';
 import { h, mount } from './dom';
 import { RESOURCE_INFO, fmtNum, fraction } from './format';
+import { levelUpText, saveNotice, starUpReadyUids, type SaveNotice } from './hints';
 import { openSettings } from './modals/settings';
 import { createCampaignScreen } from './screens/campaign';
 import { createHeroesScreen } from './screens/heroes';
@@ -46,10 +47,16 @@ export function mountApp(root: HTMLElement, game: Game): Ui {
   const listeners = new Set<() => void>();
   const lastAmounts = new Map<ResourceKey, number>();
   const topBar = h('header', { class: 'topbar' });
+  /** Warning shown while progress is not being saved (another tab took over, or storage is unavailable). */
+  const saveBanner = h('div', { class: 'save-banner-slot', attrs: { hidden: true } });
+  let shownNotice: SaveNotice | null = null;
+  let unavailableDismissed = false;
   const main = h('main', { class: 'main', attrs: { id: 'main' } });
   const tabBar = h('nav', { class: 'tabbar', attrs: { 'aria-label': 'Ana menü' } });
   let active: TabId = loadTab();
   const dirty = new Set<TabId>();
+  let knownLevel = game.state.player.level;
+  let levelToastMuted = 0;
 
   const ui: Ui = {
     game,
@@ -60,6 +67,14 @@ export function mountApp(root: HTMLElement, game: Game): Ui {
       return () => listeners.delete(fn);
     },
     notify: refresh,
+    withoutLevelUpToast(fn) {
+      levelToastMuted++;
+      try {
+        return fn();
+      } finally {
+        levelToastMuted--;
+      }
+    },
   };
 
   const screens: Record<TabId, Screen> = {
@@ -102,6 +117,44 @@ export function mountApp(root: HTMLElement, game: Game): Ui {
     );
   }
 
+  /** Rebuilt only when the notice changes, so screen readers announce it once. */
+  function renderSaveBanner(): void {
+    const problem = safely(() => game.saveProblem, null);
+    if (problem === null) unavailableDismissed = false;
+    const notice = saveNotice(problem, unavailableDismissed);
+    if (notice?.problem === shownNotice?.problem) return;
+    shownNotice = notice;
+    saveBanner.hidden = !notice;
+    if (!notice) {
+      mount(saveBanner);
+      return;
+    }
+    const act = (): void => {
+      if (notice.action === 'reload') {
+        location.reload();
+        return;
+      }
+      unavailableDismissed = true;
+      renderSaveBanner();
+    };
+    mount(
+      saveBanner,
+      h(
+        'div',
+        { class: ['save-banner', `save-banner-${notice.problem}`], attrs: { role: 'alert' } },
+        h('span', { class: 'save-banner-icon', attrs: { 'aria-hidden': 'true' } }, notice.action === 'reload' ? '🔄' : '⚠️'),
+        h('span', { class: 'save-banner-text' }, notice.text),
+        h('button', { class: ['btn', 'btn-small', notice.action === 'reload' ? 'btn-gold' : 'btn-secondary'], attrs: { type: 'button' }, onClick: act }, notice.label),
+      ),
+    );
+  }
+
+  /** Another tab may have saved meanwhile: re-check, then show or update the banner. */
+  function checkSave(): void {
+    safely(() => game.refreshSaveStatus(), null);
+    renderSaveBanner();
+  }
+
   function progressMini(frac: number): HTMLElement {
     return h('div', { class: 'exp-mini' }, h('div', { style: { width: `${Math.round(frac * 100)}%` } }));
   }
@@ -111,8 +164,17 @@ export function mountApp(root: HTMLElement, game: Game): Ui {
     const idleMs = Math.min(IDLE_CAP_HOURS * 3_600_000, game.now() - campaign.idleSince);
     return {
       campaign: idleMs >= IDLE_BADGE_MS,
+      heroes: safely(() => starUpReadyUids(game.state).size > 0, false),
       summon: resources.basicScroll > 0 || resources.heroicScroll > 0,
     };
+  }
+
+  /** Account level-ups (and their gems) happen inside other actions: announce them. */
+  function checkLevelUp(): void {
+    const level = game.state.player.level;
+    const text = levelToastMuted === 0 ? levelUpText(knownLevel, level) : null;
+    knownLevel = level;
+    if (text) showToast(text, 'reward', 3600);
   }
 
   function renderTabs(): void {
@@ -161,7 +223,9 @@ export function mountApp(root: HTMLElement, game: Game): Ui {
   }
 
   function refresh(): void {
+    checkLevelUp();
     renderTopBar();
+    renderSaveBanner();
     renderTabs();
     TABS.forEach((t) => dirty.add(t.id));
     renderScreen(active);
@@ -178,9 +242,10 @@ export function mountApp(root: HTMLElement, game: Game): Ui {
     screens[tab.id].el.hidden = true;
     main.append(screens[tab.id].el);
   }
-  mount(root, h('div', { class: 'app-shell' }, topBar, main, tabBar));
+  mount(root, h('div', { class: 'app-shell' }, topBar, saveBanner, main, tabBar));
   game.subscribe(refresh);
   renderTopBar();
+  renderSaveBanner();
   TABS.forEach((t) => dirty.add(t.id));
   goTo(active);
   setInterval(renderTabs, 30_000);
@@ -188,8 +253,13 @@ export function mountApp(root: HTMLElement, game: Game): Ui {
   const persist = (): void => safely(() => game.save(), undefined);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') persist();
+    else checkSave();
   });
   window.addEventListener('pagehide', persist);
+  // Fired in this tab when another tab writes the save (key null = the whole storage was cleared).
+  window.addEventListener('storage', (ev) => {
+    if (ev.key === null || ev.key === SAVE_KEY) checkSave();
+  });
   return ui;
 }
 

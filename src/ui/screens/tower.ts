@@ -9,6 +9,11 @@ import { openFormation } from '../modals/formation';
 
 const BONUS_EVERY = 5;
 
+/** Header line under the floor number (no "Kat 0" on a fresh save). */
+export function towerBestText(cleared: number): string {
+  return cleared > 0 ? `En yüksek: Kat ${cleared}` : 'Henüz kat geçilmedi';
+}
+
 function floorBlock(floor: number, current: number): HTMLElement {
   const state = floor < current ? 'done' : floor === current ? 'current' : 'locked';
   const bonus = floor % BONUS_EVERY === 0;
@@ -53,7 +58,7 @@ export function createTowerScreen(ui: Ui): Screen {
         h(
           'div',
           { class: 'tower-hero' },
-          h('div', { class: 'tower-heading' }, h('span', { class: 'scene-chapter' }, 'Yankı Kulesi'), h('h1', { class: 'tower-floor' }, `Kat ${floor}`), h('p', { class: 'muted' }, `En yüksek: Kat ${game.state.tower.cleared}`)),
+          h('div', { class: 'tower-heading' }, h('span', { class: 'scene-chapter' }, 'Yankı Kulesi'), h('h1', { class: 'tower-floor' }, `Kat ${floor}`), h('p', { class: 'muted' }, towerBestText(game.state.tower.cleared))),
           towerVisual(floor),
         ),
         h(
@@ -65,9 +70,9 @@ export function createTowerScreen(ui: Ui): Screen {
           rewardList(safely(() => towerRewards(floor), null)),
           h(
             'div',
-            { class: 'btn-row' },
+            { class: 'btn-row stage-actions' },
             button('👥 Takım', () => openFormation(ui)),
-            button('⚔️ Savaş', () => fightTower(ui), { variant: 'primary', class: 'btn-grow btn-fight' }),
+            button('⚔️ Savaş', () => fightTower(ui), { variant: 'primary', class: 'btn-grow btn-fight', sub: `Kat ${floor}` }),
           ),
         ),
       );

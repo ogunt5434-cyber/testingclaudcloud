@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { computeIdleRewards, HOUR_MS } from '../src/core/campaign';
+import { EXTRA_WARRIOR_WEIGHT } from '../src/core/formation';
 import { Game } from '../src/core/game';
-import { deserialize, newGameState, SAVE_KEY } from '../src/core/save';
+import { mergeRewards } from '../src/core/progression';
+import { deserialize, newGameState, SAVE_KEY, serialize } from '../src/core/save';
 import { heroPower } from '../src/core/stats';
 import { getHeroDef } from '../src/data/heroes';
 import type { GameState } from '../src/core/types';
@@ -29,6 +31,7 @@ class MemoryStorage implements Storage {
 }
 
 const START = 1_700_000_000_000;
+const DAY = 24 * HOUR_MS;
 
 interface Harness {
   game: Game;
@@ -168,13 +171,22 @@ describe('Game actions save and notify', () => {
     expect(notifications()).toBe(1);
   });
 
-  it('autoFormation picks the 6 strongest with warriors in front', () => {
+  it('autoFormation picks the 6 strongest (extra warriors weighted down) with warriors in front', () => {
     const { game, notifications } = setup((s) => rich(s));
     expect(game.summon('heroic', 10).ok).toBe(true);
     game.autoFormation();
     const team = game.formationHeroes().filter((h) => h !== null);
     expect(team).toHaveLength(6);
-    const strongest = game.sortedHeroes().slice(0, 6).map((h) => h.uid);
+    const isWarrior = (uid: string) => getHeroDef(game.hero(uid)!.heroId).heroClass === 'warrior';
+    const byPower = game.sortedHeroes().map((h) => h.uid);
+    const frontWarriors = byPower.filter(isWarrior).slice(0, 2);
+    const value = (uid: string) =>
+      game.heroPower(uid) * (isWarrior(uid) && !frontWarriors.includes(uid) ? EXTRA_WARRIOR_WEIGHT : 1);
+    const strongest = byPower
+      .map((uid, i) => ({ uid, i }))
+      .sort((a, b) => value(b.uid) - value(a.uid) || a.i - b.i)
+      .slice(0, 6)
+      .map((x) => x.uid);
     expect(new Set(team.map((h) => h!.uid))).toEqual(new Set(strongest));
     const front = game.formationHeroes().slice(0, 2);
     const warriorsInTeam = team.filter((h) => getHeroDef(h!.heroId).heroClass === 'warrior').length;
@@ -316,5 +328,178 @@ describe('Game actions save and notify', () => {
     }
     expect(game.state.player.name).toBe('Kara Şahin');
     expect(notifications()).toBe(1);
+  });
+});
+
+describe('idle chest and the clock', () => {
+  it('clearing stages before collecting keeps the hours already earned at the old stage rate', () => {
+    const { game, clock, storage } = setup((s) => {
+      for (const h of s.heroes) {
+        h.stars = 5;
+        h.level = 100;
+        h.equipment = { weapon: 'weapon_t6', armor: 'armor_t6', helmet: 'helmet_t6', boots: 'boots_t6' };
+      }
+      s.campaign.cleared = 20;
+    });
+    clock.t += 6 * HOUR_MS;
+    const before = game.idlePreview();
+    for (let i = 0; i < 10; i++) expect(game.fightCampaign().ok).toBe(true);
+    expect(game.state.campaign.cleared).toBe(30);
+    expect(game.idlePreview()).toEqual(before);
+    expect(game.state.campaign.idleSince).toBe(START);
+
+    // Hours after the wins pay at the new stage's rate.
+    const wonAt = clock.t;
+    clock.t += 2 * HOUR_MS;
+    const afterWins = newGameState(wonAt);
+    afterWins.campaign.cleared = 30;
+    const expected = mergeRewards(before, computeIdleRewards(afterWins, clock.t));
+    expect(game.idlePreview()).toEqual(expected);
+    expect(Game.load({ storage, now: () => clock.t }).idlePreview()).toEqual(expected);
+
+    const gold = game.state.resources.gold;
+    expect(game.claimIdle()).toEqual(expected);
+    expect(game.state.resources.gold).toBe(gold + expected.resources.gold!);
+    expect(game.idlePreview().resources.gold).toBe(0);
+  });
+
+  it('a chest timer left in the future (device clock was ahead) restarts on load instead of freezing', () => {
+    const storage = new MemoryStorage();
+    const ahead = newGameState(START);
+    ahead.campaign.idleSince = START + 30 * DAY;
+    ahead.campaign.idlePaidUntil = START + 30 * DAY;
+    storage.setItem(SAVE_KEY, serialize(ahead));
+    const clock = { t: START };
+    const game = Game.load({ storage, now: () => clock.t });
+    expect(game.state.campaign.idleSince).toBe(START);
+    expect(deserialize(storage.getItem(SAVE_KEY), START)!.campaign.idleSince).toBe(START);
+    expect(game.saveProblem).toBeNull();
+    clock.t += 3 * HOUR_MS;
+    const expected = computeIdleRewards(newGameState(START), clock.t);
+    expect(expected.resources.gold).toBeGreaterThan(0);
+    expect(game.idlePreview()).toEqual(expected);
+    expect(game.claimIdle()).toEqual(expected);
+  });
+
+  it('a clock corrected backwards while the game is open restarts the chest instead of freezing it', () => {
+    const storage = new MemoryStorage();
+    const clock = { t: START + 30 * DAY };
+    const game = new Game(newGameState(START), { storage, now: () => clock.t });
+    clock.t += 2 * HOUR_MS;
+    game.claimIdle(); // collected while the device clock was 30 days ahead
+    clock.t = START + HOUR_MS; // the clock gets fixed
+    expect(game.idlePreview().resources.gold).toBe(0); // the live chest notices the jump...
+    expect(deserialize(storage.getItem(SAVE_KEY), START)!.campaign.idleSince).toBe(START + HOUR_MS);
+    clock.t += 3 * HOUR_MS; // ...and fills again from then on
+    expect(game.idlePreview()).toEqual(computeIdleRewards(newGameState(START + HOUR_MS), clock.t));
+    for (const days of [1, 7, 29]) {
+      clock.t = START + days * DAY;
+      game.claimIdle();
+      clock.t += 3 * HOUR_MS;
+      const expected = computeIdleRewards(newGameState(START + days * DAY), clock.t);
+      expect(expected.resources.gold).toBeGreaterThan(0);
+      expect(game.claimIdle()).toEqual(expected);
+    }
+  });
+});
+
+describe('several open instances (tabs) on one save', () => {
+  it('a stale instance cannot overwrite newer progress (no undoing pulls from another tab)', () => {
+    const storage = new MemoryStorage();
+    const now = () => START;
+    const tabA = Game.load({ storage, now });
+    const tabB = Game.load({ storage, now });
+    for (let i = 0; i < 4; i++) expect(tabA.summon('heroic', 1).ok).toBe(true);
+    expect(tabA.state.resources.gems).toBe(600);
+
+    let notified = 0;
+    tabB.subscribe(() => notified++);
+    const hero = tabB.state.heroes[0];
+    tabB.toggleLock(hero.uid);
+    expect(hero.locked).toBe(false);
+    expect(tabB.saveProblem).toBe('conflict');
+    expect(tabB.saveWarning()).toMatch(/başka bir sekmede/);
+    expect(notified).toBe(1);
+    const res = tabB.summon('heroic', 1);
+    expect(res).toEqual({ ok: false, error: tabB.saveWarning() });
+    expect(tabB.levelUp(hero.uid, 1).ok).toBe(false);
+    expect(tabB.claimIdle()).toEqual({ resources: {} });
+    tabB.save(); // e.g. pagehide of the old tab
+
+    const reloaded = Game.load({ storage, now });
+    expect(reloaded.state.heroes).toHaveLength(9);
+    expect(reloaded.state.resources).toMatchObject({ gems: 600, heroicScroll: 0 });
+
+    // The up-to-date instance keeps saving normally.
+    expect(tabA.saveProblem).toBeNull();
+    const uid = tabA.state.formation[0]!;
+    expect(tabA.levelUp(uid, 2).ok).toBe(true);
+    expect(Game.load({ storage, now }).hero(uid)!.level).toBe(3);
+  });
+
+  it('refreshSaveStatus notices another tab\'s save without an action, and notifies once', () => {
+    const storage = new MemoryStorage();
+    const now = () => START;
+    const tabA = Game.load({ storage, now });
+    const tabB = Game.load({ storage, now });
+    let notified = 0;
+    tabB.subscribe(() => notified++);
+    expect(tabB.refreshSaveStatus()).toBeNull();
+    expect(notified).toBe(0);
+
+    expect(tabA.summon('heroic', 1).ok).toBe(true); // the other tab writes (a `storage` event in a browser)
+    expect(tabB.refreshSaveStatus()).toBe('conflict');
+    expect(notified).toBe(1);
+    expect(tabB.refreshSaveStatus()).toBe('conflict');
+    expect(notified).toBe(1);
+    expect(tabA.refreshSaveStatus()).toBeNull();
+
+    // A game without storage reports 'unavailable' and never turns stale.
+    const offline = new Game(newGameState(START), { storage: null, now });
+    expect(offline.refreshSaveStatus()).toBe('unavailable');
+  });
+
+  it('reset from a stale instance wins and makes the other instance stale', () => {
+    const storage = new MemoryStorage();
+    const now = () => START;
+    const tabA = Game.load({ storage, now });
+    const tabB = Game.load({ storage, now });
+    expect(tabA.levelUp(tabA.state.formation[0]!, 5).ok).toBe(true);
+    expect(tabB.levelUp(tabB.state.formation[0]!, 1).ok).toBe(false);
+    tabB.reset();
+    expect(tabB.saveProblem).toBeNull();
+    expect(Game.load({ storage, now }).state.heroes.every((h) => h.level === 1)).toBe(true);
+    expect(tabA.levelUp(tabA.state.formation[0]!, 1).ok).toBe(false);
+    expect(tabA.saveProblem).toBe('conflict');
+    expect(Game.load({ storage, now }).state.heroes.every((h) => h.level === 1)).toBe(true);
+  });
+});
+
+describe('save failures', () => {
+  it('reports when progress cannot be written, and recovers when storage works again', () => {
+    const storage = new MemoryStorage();
+    const write = storage.setItem.bind(storage);
+    let full = true;
+    storage.setItem = (key: string, value: string) => {
+      if (full) throw new DOMException('quota', 'QuotaExceededError');
+      write(key, value);
+    };
+    const game = Game.load({ storage, now: () => START });
+    expect(game.saveProblem).toBeNull();
+    expect(game.summon('heroic', 1).ok).toBe(true);
+    expect(game.saveProblem).toBe('unavailable');
+    expect(game.saveWarning()).toMatch(/Kayıt yapılamıyor/);
+    full = false;
+    expect(game.levelUp(game.state.formation[0]!, 1).ok).toBe(true);
+    expect(game.saveProblem).toBeNull();
+    expect(game.saveWarning()).toBeNull();
+    expect(Game.load({ storage, now: () => START }).state.heroes).toHaveLength(6);
+  });
+
+  it('flags a game that has no storage at all', () => {
+    const game = new Game(newGameState(START), { storage: null, now: () => START });
+    expect(game.saveProblem).toBe('unavailable');
+    expect(game.levelUp(game.state.formation[0]!, 1).ok).toBe(true);
+    expect(game.saveProblem).toBe('unavailable');
   });
 });

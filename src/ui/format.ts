@@ -140,3 +140,30 @@ export function fraction(value: number, max: number): number {
   if (!(max > 0) || !Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(1, value / max));
 }
+
+const TR_VOWELS = new Set('aeıioöuüâîûAEIİOÖUÜÂÎÛ');
+/** Soft hyphen: invisible unless the browser breaks the line there. */
+export const SOFT_HYPHEN = '­';
+
+/**
+ * Inserts soft hyphens at Turkish syllable boundaries so long names can wrap inside small cards
+ * ("Kızılboynuz" -> "Kızıl-" / "boynuz") instead of being cut off. Turkish syllables have exactly one vowel;
+ * between two vowels the boundary goes before the last consonant (V-V, V-CV, VC-CV, VCC-CV).
+ * Breaks that would leave a single letter at either end of a word are skipped.
+ */
+export function hyphenateTr(text: string): string {
+  return text
+    .split(' ')
+    .map((word) => {
+      const chars = [...word];
+      const vowels = chars.flatMap((c, i) => (TR_VOWELS.has(c) ? [i] : []));
+      const breaks = new Set<number>();
+      for (let k = 1; k < vowels.length; k++) {
+        const consonants = vowels[k] - vowels[k - 1] - 1;
+        const at = consonants <= 1 ? vowels[k - 1] + 1 : vowels[k] - 1;
+        if (at >= 2 && at <= chars.length - 2) breaks.add(at);
+      }
+      return chars.map((c, i) => (breaks.has(i) ? SOFT_HYPHEN + c : c)).join('');
+    })
+    .join(' ');
+}

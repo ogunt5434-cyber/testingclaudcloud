@@ -21,6 +21,10 @@ interface UnitCard {
 /** Horizontal offsets cycled through so stacked floating numbers do not overlap. */
 const FLOAT_OFFSETS = [0, -16, 14, -8, 18, -20, 8];
 
+/** Temporary highlight classes added by pulse(). */
+const PULSE_CLASSES = ['casting', 'skipping', 'passive-glow'] as const;
+type PulseClass = (typeof PULSE_CLASSES)[number];
+
 const FRONT = [0, 1];
 const BACK = [2, 3, 4, 5];
 
@@ -189,7 +193,13 @@ export class BattleView {
     if (crit) this.el.animate([{ transform: 'translateY(0)' }, { transform: 'translateY(3px)' }, { transform: 'translateY(0)' }], { duration: this.ms(180) });
   }
 
-  pulse(ref: UnitRef, className: string, baseMs: number): void {
+  /** Removes every transient effect (used by "Atla", which cancels the timers that would clean them up). */
+  resetEffects(): void {
+    this.el.querySelectorAll('.float, .spark, .skill-banner, .round-banner').forEach((el) => el.remove());
+    for (const card of this.cards.values()) card.root.classList.remove(...PULSE_CLASSES);
+  }
+
+  pulse(ref: UnitRef, className: PulseClass, baseMs: number): void {
     const card = this.cards.get(refKey(ref));
     if (!card) return;
     card.root.classList.add(className);
@@ -206,11 +216,11 @@ export class BattleView {
       h('span', { class: 'sb-emoji' }, def.emoji),
       h('span', { class: 'sb-text' }, h('span', { class: 'sb-hero' }, def.name), h('span', { class: 'sb-skill' }, skillName)),
     );
-    this.showBanner(banner, 1000);
+    this.showBanner(banner, 850);
   }
 
   roundBanner(round: number, maxRounds: number): void {
-    this.showBanner(h('div', { class: 'round-banner' }, h('small', null, 'TUR'), `${round}`, h('small', null, `/ ${maxRounds}`)), 800);
+    this.showBanner(h('div', { class: 'round-banner' }, h('small', null, 'TUR'), `${round}`, h('small', null, `/ ${maxRounds}`)), 700);
   }
 
   private showBanner(el: HTMLElement, baseMs: number): void {

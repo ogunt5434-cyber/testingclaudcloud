@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  bankIdleRewards,
   campaignEnemies,
   claimIdleRewards,
   computeIdleRewards,
@@ -12,7 +13,9 @@ import {
   stagePower,
   stageStrength,
   strengthCurve,
+  syncIdleClock,
 } from '../src/core/campaign';
+import { mergeRewards } from '../src/core/progression';
 import { IDLE_CAP_HOURS, LEVEL_CAP, TEAM_SIZE } from '../src/core/constants';
 import { enemyRank } from '../src/core/enemies';
 import { newGameState } from '../src/core/save';
@@ -157,6 +160,94 @@ describe('idle rewards', () => {
     expect(Math.abs(scrolls - rate.resources.basicScroll! * 100)).toBeLessThanOrEqual(1);
     expect(Math.abs(gear - expectedGear)).toBeLessThanOrEqual(Object.keys(rate.equipment!).length);
     expect(state.resources.basicScroll).toBe(start + scrolls);
+  });
+
+  it('pays the same total however often the player claims (fractional gold/spirit/exp carry over)', () => {
+    for (const cleared of [0, 7, 30]) {
+      const once = computeIdleRewards(idleState(cleared), HOUR_MS);
+      for (const stepSec of [30, 59, 90, 600]) {
+        const state = idleState(cleared);
+        let gold = 0;
+        let spirit = 0;
+        let exp = 0;
+        let t = 0;
+        while (t < HOUR_MS) {
+          t = Math.min(HOUR_MS, t + stepSec * 1000);
+          const r = claimIdleRewards(state, t);
+          gold += r.resources.gold ?? 0;
+          spirit += r.resources.spirit ?? 0;
+          exp += r.playerExp ?? 0;
+        }
+        expect({ cleared, stepSec, gold, spirit, exp }).toEqual({
+          cleared,
+          stepSec,
+          gold: once.resources.gold,
+          spirit: once.resources.spirit,
+          exp: once.playerExp,
+        });
+      }
+    }
+    // Stage 0 earns 60 exp/hour: claiming every 30s used to floor every claim to 0.
+    expect(computeIdleRewards(idleState(0), HOUR_MS).playerExp).toBe(60);
+  });
+
+  it('a clock rewind between claims never pays the same time twice', () => {
+    const state = idleState(50);
+    const start = state.resources.gold;
+    const paid = [5, 2].map((h) => claimIdleRewards(state, h * HOUR_MS).resources.gold!);
+    expect(paid[1]).toBe(0);
+    // The rewound claim restarts the chest at the earlier time, but time up to 5h stays marked as paid.
+    expect(state.campaign.idleSince).toBe(2 * HOUR_MS);
+    expect(state.campaign.idlePaidUntil).toBe(5 * HOUR_MS);
+    paid.push(claimIdleRewards(state, 6 * HOUR_MS).resources.gold!);
+    const single = computeIdleRewards(idleState(50), 6 * HOUR_MS).resources.gold!;
+    expect(paid.reduce((a, b) => a + b)).toBe(single);
+    expect(state.resources.gold).toBe(start + single);
+    expect(state.campaign.idlePaidUntil).toBe(6 * HOUR_MS);
+  });
+
+  it('restarts (instead of freezing) a chest whose timer is ahead of the clock', () => {
+    const DAY = 24 * HOUR_MS;
+    const state = idleState(30, 30 * DAY); // last collected while the device clock was 30 days ahead
+    state.campaign.idlePaidUntil = 30 * DAY;
+    expect(computeIdleRewards(state, 2 * HOUR_MS).resources.gold).toBe(0);
+    expect(syncIdleClock(state, 2 * HOUR_MS)).toBe(true);
+    expect(state.campaign.idleSince).toBe(2 * HOUR_MS);
+    expect(syncIdleClock(state, 2 * HOUR_MS)).toBe(false);
+    const later = computeIdleRewards(state, 5 * HOUR_MS);
+    expect(later.resources.gold).toBe(computeIdleRewards(idleState(30, 2 * HOUR_MS), 5 * HOUR_MS).resources.gold);
+    expect(later.resources.gold).toBeGreaterThan(0);
+    // Claims keep working below the old mark, and the mark never moves back.
+    expect(claimIdleRewards(state, 5 * HOUR_MS).resources.gold).toBe(later.resources.gold);
+    expect(state.campaign.idlePaidUntil).toBe(30 * DAY);
+  });
+
+  it('banking before a stage clear keeps earned hours at the old rate and the 12h cap', () => {
+    const state = idleState(20);
+    const sixHours = computeIdleRewards(state, 6 * HOUR_MS);
+    bankIdleRewards(state, 6 * HOUR_MS);
+    state.campaign.cleared = 30;
+    expect(computeIdleRewards(state, 6 * HOUR_MS)).toEqual(sixHours);
+    expect(state.campaign.idleSince).toBe(0); // the chest timer keeps running
+    // Later hours pay the new stage's rate.
+    const after = idleState(30, 6 * HOUR_MS);
+    expect(computeIdleRewards(state, 8 * HOUR_MS)).toEqual(mergeRewards(sixHours, computeIdleRewards(after, 8 * HOUR_MS)));
+    // Still 12h in total: 6h at stage 20 + 6h at stage 30, no matter how long the chest waits.
+    const full = mergeRewards(sixHours, computeIdleRewards(after, 12 * HOUR_MS));
+    expect(computeIdleRewards(state, 40 * HOUR_MS)).toEqual(full);
+    expect(full.resources.gold).toBeLessThan(computeIdleRewards(idleState(30), 12 * HOUR_MS).resources.gold!);
+    // Banking again at the same moment (several wins in a row) changes nothing.
+    bankIdleRewards(state, 8 * HOUR_MS);
+    const twice = computeIdleRewards(state, 8 * HOUR_MS);
+    bankIdleRewards(state, 8 * HOUR_MS);
+    state.campaign.cleared = 31;
+    expect(computeIdleRewards(state, 8 * HOUR_MS)).toEqual(twice);
+    // Claiming pays the bank and empties it.
+    const gold = state.resources.gold;
+    expect(claimIdleRewards(state, 8 * HOUR_MS)).toEqual(twice);
+    expect(state.resources.gold).toBe(gold + twice.resources.gold!);
+    expect(state.campaign.idleBank).toBeUndefined();
+    expect(computeIdleRewards(state, 8 * HOUR_MS).resources.gold).toBe(0);
   });
 
   it('claim adds rewards to state and resets the timer', () => {

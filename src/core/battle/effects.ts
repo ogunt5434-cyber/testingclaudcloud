@@ -3,7 +3,7 @@ import { ENERGY_MAX, ENERGY_PER_HIT } from '../constants';
 import type { ControlStatus, DotStatus, SkillEffect, StatusKind } from '../types';
 import type { BattleContext } from './context';
 import { rollHit, type HitOptions } from './damage';
-import { isAlive, isControlStatus, stat, type BattleUnit } from './unit';
+import { isAlive, isControlStatus, stat, type ActiveBuff, type BattleUnit } from './unit';
 
 /** Damage categories produced by units (DoT ticks are handled separately). */
 export type HitKind = 'basic' | 'skill' | 'passive';
@@ -34,11 +34,12 @@ export function loseHp(
   return amount;
 }
 
-/** Emits death, clears statuses (emitting `status off`), ends the battle or queues death passives. */
+/** Emits death, clears statuses and buffs (emitting `status off` / `buffEnd`), ends the battle or queues death passives. */
 function killUnit(ctx: BattleContext, unit: BattleUnit): void {
   ctx.emit({ t: 'death', target: unit.ref });
   for (const status of [...unit.controls.keys()]) removeStatus(ctx, unit, status);
   for (const dot of [...unit.dots]) removeStatus(ctx, unit, dot.status);
+  for (const buff of unit.buffs) emitBuffEnd(ctx, unit, buff);
   unit.buffs = [];
   ctx.checkEnd();
   if (ctx.over) return;
@@ -50,6 +51,11 @@ export function removeStatus(ctx: BattleContext, unit: BattleUnit, status: Statu
   if (isControlStatus(status)) unit.controls.delete(status);
   else unit.dots = unit.dots.filter((d) => d.status !== status);
   ctx.emit({ t: 'status', target: unit.ref, status, on: false, duration: 0 });
+}
+
+/** Announces that a buff is gone (the caller removes it from `unit.buffs`). */
+export function emitBuffEnd(ctx: BattleContext, unit: BattleUnit, buff: ActiveBuff): void {
+  ctx.emit({ t: 'buffEnd', target: unit.ref, stat: buff.stat, amount: buff.amount });
 }
 
 // ---------------------------------------------------------------------------
@@ -103,7 +109,12 @@ function applyControl(ctx: BattleContext, target: BattleUnit, status: ControlSta
   ctx.emit({ t: 'status', target: target.ref, status, on: true, duration: remaining });
 }
 
-/** DoT: per-tick damage fixed from caster ATK now; reapplying keeps the longer duration and higher value. */
+/**
+ * DoT: per-tick damage fixed from caster ATK now; reapplying keeps the longer duration and higher value.
+ * A new DoT applied during round end is `fresh`: it neither ticks nor decrements this round, so it ticks in each
+ * of the next `duration` rounds. An existing non-fresh DoT stays non-fresh: its tick (if still pending) and this
+ * round's decrement still happen, so during round end it needs `duration + 1` to leave `duration` future ticks.
+ */
 function applyDot(
   ctx: BattleContext,
   caster: BattleUnit,
@@ -114,16 +125,14 @@ function applyDot(
 ): void {
   if (!ctx.rng.chance(effect.chance)) return;
   const perTick = Math.max(1, Math.round((effect.value ?? 0) * stat(caster, 'atk')));
-  const fresh = ctx.phase === 'roundEnd';
+  const inRoundEnd = ctx.phase === 'roundEnd';
   let dot = target.dots.find((d) => d.status === status);
   if (!dot) {
-    dot = { status, remaining: duration, perTick, caster, fresh };
+    dot = { status, remaining: duration, perTick, caster, fresh: inRoundEnd };
     target.dots.push(dot);
   } else {
-    if (duration > dot.remaining) {
-      dot.remaining = duration;
-      dot.fresh = dot.fresh || fresh;
-    }
+    const pendingDecrement = inRoundEnd && !dot.fresh ? 1 : 0;
+    dot.remaining = Math.max(dot.remaining, duration + pendingDecrement);
     if (perTick > dot.perTick) {
       dot.perTick = perTick;
       dot.caster = caster;

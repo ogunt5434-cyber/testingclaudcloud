@@ -1,16 +1,23 @@
 // Pure UI logic: number/time formatting, reward rows, battle replay model and playback pacing.
 import { describe, expect, it } from 'vitest';
 import { simulateBattle } from '../src/core/battle/engine';
-import { affordableLevels, levelUpCost } from '../src/core/progression';
+import { Game } from '../src/core/game';
+import { affordableLevels, grantPlayerExp, levelUpCost, playerExpToNext, starUpHero } from '../src/core/progression';
 import { newGameState } from '../src/core/save';
 import { Rng } from '../src/core/rng';
 import { toBattleUnit } from '../src/core/stats';
-import type { BattleEvent, BattleUnitSetup, UnitSnapshot } from '../src/core/types';
+import type { BattleEvent, BattleUnitSetup, GameState, HeroInstance, UnitSnapshot } from '../src/core/types';
 import { HEROES } from '../src/data/heroes';
 import { BattleModel, refKey, replayAll } from '../src/ui/battle/model';
 import { delayAfter, totalDuration } from '../src/ui/battle/timing';
-import { fmtBuff, fmtDuration, fmtNum, fmtPercent, fraction, rewardEntries, rewardSummary } from '../src/ui/format';
+import { progressBarWidth, rewardAmountText } from '../src/ui/components';
+import { fmtBuff, fmtDuration, fmtNum, fmtPercent, fraction, hyphenateTr, rewardEntries, rewardSummary, SOFT_HYPHEN } from '../src/ui/format';
+import { levelUpGems, levelUpText, saveNotice, starUpReady, starUpReadyUids } from '../src/ui/hints';
+import { SLOT_BADGES, SLOT_LABELS } from '../src/ui/modals/formation';
 import { bestStockTier } from '../src/ui/modals/heroEquipment';
+import { towerBestText } from '../src/ui/screens/tower';
+import indexHtml from '../index.html?raw';
+import styleCss from '../src/style.css?raw';
 
 describe('format', () => {
   it('formats compact numbers', () => {
@@ -63,6 +70,97 @@ describe('format', () => {
     expect(fraction(5, 10)).toBe(0.5);
     expect(fraction(20, 10)).toBe(1);
     expect(fraction(1, 0)).toBe(0);
+  });
+
+  it('formats progress widths and reward chip amounts', () => {
+    expect(progressBarWidth(0.5)).toBe('50%');
+    expect(progressBarWidth(0.12345)).toBe('12.3%');
+    expect(progressBarWidth(2)).toBe('100%');
+    expect(progressBarWidth(Number.NaN)).toBe('0%');
+    expect(rewardAmountText(12_345)).toBe('×12.3K');
+  });
+
+  it('hyphenates Turkish names at syllable boundaries so small cards can wrap them', () => {
+    const shown = (name: string): string => hyphenateTr(name).split(SOFT_HYPHEN).join('-');
+    expect(shown('Kızılboynuz')).toBe('Kı-zıl-boy-nuz');
+    expect(shown('Karaca Bacı')).toBe('Ka-ra-ca Ba-cı');
+    expect(shown('Meşeyürek')).toBe('Me-şe-yü-rek');
+    expect(shown('Arslan')).toBe('Ars-lan');
+    // never a single letter alone at either end of a word
+    expect(shown('Alevnur')).toBe('Alev-nur');
+    expect(shown('Kartal Ece')).toBe('Kar-tal Ece');
+    for (const hero of HEROES) {
+      const text = hyphenateTr(hero.name);
+      expect(text.split(SOFT_HYPHEN).join('')).toBe(hero.name);
+      for (const word of text.split(' ')) for (const part of word.split(SOFT_HYPHEN)) expect([...part].length, hero.name).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('shows tower progress without "Kat 0" on a new save', () => {
+    expect(towerBestText(0)).toBe('Henüz kat geçilmedi');
+    expect(towerBestText(7)).toBe('En yüksek: Kat 7');
+  });
+
+  it('labels formation badges like the slots they sit in', () => {
+    expect(SLOT_BADGES).toHaveLength(SLOT_LABELS.length);
+    SLOT_LABELS.forEach((label, i) => {
+      const [row, num] = label.split(' ');
+      expect(SLOT_BADGES[i]).toBe(`${row === 'Ön' ? 'Ö' : 'A'}${num}`);
+    });
+  });
+});
+
+describe('progression hints', () => {
+  it('announces account level-ups with the gems they granted', () => {
+    const state = newGameState(0);
+    const gemsBefore = state.resources.gems;
+    const exp = playerExpToNext(1) + playerExpToNext(2) + 5;
+    expect(grantPlayerExp(state, exp)).toBe(2);
+    expect(levelUpGems(1, 3)).toBe(state.resources.gems - gemsBefore);
+    expect(levelUpText(1, 3)).toBe(`Hesap seviyesi 3! +${state.resources.gems - gemsBefore} 💎`);
+    expect(levelUpText(3, 3)).toBeNull();
+    expect(levelUpText(5, 1)).toBeNull();
+    expect(levelUpGems(4, 4)).toBe(0);
+  });
+
+  it('marks exactly the heroes whose star-up would succeed', () => {
+    const base = newGameState(0);
+    const heroId = HEROES.find((def) => def.rarity === 3)?.id ?? HEROES[0].id;
+    const copy = (uid: string, level: number, extra: Partial<HeroInstance> = {}): HeroInstance => ({
+      uid,
+      heroId,
+      level,
+      stars: 3,
+      equipment: {},
+      locked: false,
+      ...extra,
+    });
+    const make = (heroes: HeroInstance[], formation: (string | null)[] = base.formation): GameState => ({
+      ...base,
+      heroes: [...base.heroes, ...heroes],
+      formation: [...formation],
+    });
+    const check = (state: GameState): void => {
+      for (const hero of state.heroes) {
+        const trial: GameState = structuredClone(state);
+        const ok = starUpHero(trial, hero.uid).ok;
+        expect(starUpReady(state, hero), `${hero.uid}`).toBe(ok);
+        expect(starUpReadyUids(state).has(hero.uid)).toBe(ok);
+      }
+    };
+    // level 60/60 3★ hero + 3 eligible copies -> ready (the copies are below the cap -> not ready)
+    const ready = make([copy('t0', 60), copy('t1', 1), copy('t2', 1), copy('t3', 1)]);
+    expect([...starUpReadyUids(ready)]).toEqual(['t0']);
+    check(ready);
+    // not at the level cap
+    check(make([copy('t0', 59), copy('t1', 1), copy('t2', 1)]));
+    expect(starUpReadyUids(make([copy('t0', 59), copy('t1', 1), copy('t2', 1)])).size).toBe(0);
+    // copies locked / in the team do not count
+    const blocked = make([copy('t0', 60), copy('t1', 1, { locked: true }), copy('t2', 1)], ['t2', null, null, null, null, null]);
+    expect(starUpReadyUids(blocked).size).toBe(0);
+    check(blocked);
+    // two capped copies can each use the other
+    check(make([copy('t0', 60), copy('t1', 60), copy('t2', 1)]));
   });
 });
 
@@ -146,6 +244,51 @@ describe('battle replay model', () => {
     expect(model.units.get('d0')?.buffs).toHaveLength(0);
   });
 
+  it('drops a buff when the engine announces its end (buffEnd), earliest-due copy first', () => {
+    const a0 = { side: 'attacker' as const, pos: 0 };
+    const model = new BattleModel([{ ref: a0, heroId: 'batur', level: 1, stars: 3, maxHp: 100, hp: 100, energy: 50 }]);
+    model.apply({ t: 'roundStart', round: 1 });
+    model.apply({ t: 'buff', target: a0, stat: 'atk', amount: 0.2, duration: 3 });
+    model.apply({ t: 'buff', target: a0, stat: 'atk', amount: 0.2, duration: 1 });
+    model.apply({ t: 'buff', target: a0, stat: 'spd', amount: -10, duration: 1 });
+    model.apply({ t: 'buffEnd', target: a0, stat: 'atk', amount: 0.2 });
+    expect(model.units.get('a0')?.buffs.map((b) => [b.stat, b.lastRound])).toEqual([
+      ['atk', 3],
+      ['spd', 1],
+    ]);
+    model.apply({ t: 'buffEnd', target: a0, stat: 'armor', amount: 0.5 }); // unknown: ignored
+    expect(model.units.get('a0')?.buffs).toHaveLength(2);
+  });
+
+  it('keeps the same buffs as the engine at every round start and at the end of real battles', () => {
+    // The battle cards draw ▲/▼ from model buffs: they must match what the engine still has active.
+    const rng = new Rng(4321);
+    let checked = 0;
+    for (let i = 0; i < 150; i++) {
+      const result = simulateBattle({ attackers: randomTeam(rng, rng.int(1, 6)), defenders: randomTeam(rng, rng.int(1, 6)), seed: 1000 + i });
+      const model = new BattleModel(result.initial);
+      const active = new Map<string, number>();
+      const bump = (key: string, by: number): void => {
+        active.set(key, (active.get(key) ?? 0) + by);
+      };
+      const expectSame = (where: string): void => {
+        const modelCounts = new Map<string, number>();
+        for (const unit of model.units.values()) for (const b of unit.buffs) modelCounts.set(`${unit.key}|${b.stat}|${b.amount}`, (modelCounts.get(`${unit.key}|${b.stat}|${b.amount}`) ?? 0) + 1);
+        const engineCounts = new Map([...active].filter(([, n]) => n > 0));
+        expect(modelCounts, `battle ${i} ${where}`).toEqual(engineCounts);
+        checked++;
+      };
+      for (const ev of result.events) {
+        model.apply(ev);
+        if (ev.t === 'buff') bump(`${refKey(ev.target)}|${ev.stat}|${ev.amount}`, 1);
+        if (ev.t === 'buffEnd') bump(`${refKey(ev.target)}|${ev.stat}|${ev.amount}`, -1);
+        if (ev.t === 'roundStart') expectSame(`round ${ev.round}`);
+      }
+      expectSame('end');
+    }
+    expect(checked).toBeGreaterThan(300);
+  });
+
   it('tracks statuses and death', () => {
     const d1 = { side: 'defender' as const, pos: 1 };
     const model = new BattleModel([{ ref: d1, heroId: 'batur', level: 1, stars: 3, maxHp: 100, hp: 100, energy: 50 }]);
@@ -170,11 +313,83 @@ describe('playback pacing', () => {
     expect(delayAfter(energy, action)).toBeGreaterThan(0);
   });
 
+  it('plays the first campaign stage in about half a minute at ×1 (was ~44 s)', () => {
+    const times: number[] = [];
+    for (let t = 0; t < 8; t++) {
+      const now = 1_000 + t * 7_919;
+      const game = new Game(newGameState(now), { storage: null, now: () => now });
+      const fight = game.fightCampaign();
+      if (!fight.ok) throw new Error(fight.error);
+      times.push(totalDuration(fight.value.result.events));
+    }
+    const mean = times.reduce((a, b) => a + b, 0) / times.length;
+    expect(mean).toBeLessThan(32_000);
+    expect(Math.min(...times)).toBeGreaterThan(8_000);
+  });
+
   it('keeps a full 6v6 battle watchable at ×1', () => {
     const rng = new Rng(99);
     const result = simulateBattle({ attackers: randomTeam(rng, 6), defenders: randomTeam(rng, 6), seed: 5 });
     const ms = totalDuration(result.events);
     expect(ms).toBeGreaterThan(1000);
     expect(ms).toBeLessThan(15 * 60_000);
+  });
+});
+
+describe('save banner', () => {
+  it('asks a stale tab to reload, warns once about unavailable storage, and hides when saving works', () => {
+    expect(saveNotice(null, false)).toBeNull();
+    expect(saveNotice(null, true)).toBeNull();
+    const conflict = saveNotice('conflict', true);
+    expect(conflict).toMatchObject({ action: 'reload', label: 'Sayfayı Yenile' });
+    expect(conflict!.text).toMatch(/başka bir sekmede/);
+    expect(saveNotice('unavailable', false)).toMatchObject({ action: 'dismiss', label: 'Tamam' });
+    expect(saveNotice('unavailable', true)).toBeNull();
+  });
+
+  it('follows a real stale instance (the banner the app shell shows for it)', () => {
+    const storage = new Map<string, string>();
+    const memory = {
+      get length() {
+        return storage.size;
+      },
+      clear: () => storage.clear(),
+      getItem: (k: string) => storage.get(k) ?? null,
+      key: (i: number) => [...storage.keys()][i] ?? null,
+      removeItem: (k: string) => void storage.delete(k),
+      setItem: (k: string, v: string) => void storage.set(k, String(v)),
+    } satisfies Storage;
+    const tabA = Game.load({ storage: memory, now: () => 1_000 });
+    const tabB = Game.load({ storage: memory, now: () => 1_000 });
+    expect(saveNotice(tabB.refreshSaveStatus(), false)).toBeNull();
+    expect(tabA.summon('heroic', 1).ok).toBe(true);
+    expect(saveNotice(tabB.refreshSaveStatus(), false)?.text).toBe(tabB.saveWarning());
+    expect(tabB.claimIdle()).toEqual({ resources: {} });
+  });
+});
+
+describe('page shell', () => {
+  const viewport = /<meta\s+name="viewport"\s+content="([^"]*)"/.exec(indexHtml)?.[1] ?? '';
+
+  it('lets players pinch-zoom (no maximum-scale / user-scalable=no) and covers notched screens', () => {
+    const parts = new Map(
+      viewport.split(',').map((part) => {
+        const [key, value = ''] = part.split('=').map((s) => s.trim());
+        return [key, value] as const;
+      }),
+    );
+    expect(parts.get('width')).toBe('device-width');
+    expect(parts.has('user-scalable')).toBe(false);
+    expect(parts.has('maximum-scale')).toBe(false);
+    // Without viewport-fit=cover every env(safe-area-inset-*) used by style.css resolves to 0.
+    expect(parts.get('viewport-fit')).toBe('cover');
+    expect(styleCss).toMatch(/env\(safe-area-inset-top/);
+  });
+
+  it('keeps double-tap zoom off everywhere and text inputs at 16px (no iOS focus zoom)', () => {
+    expect(styleCss).toMatch(/(^|\n)\*\s*\{\s*touch-action:\s*manipulation;\s*\}/);
+    const textInput = /\n\.text-input\s*\{([^}]*)\}/.exec(styleCss)?.[1] ?? '';
+    const size = /font-size:\s*(\d+)px/.exec(textInput)?.[1];
+    expect(Number(size)).toBeGreaterThanOrEqual(16);
   });
 });

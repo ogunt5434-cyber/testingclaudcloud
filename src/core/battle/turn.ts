@@ -2,10 +2,10 @@
 import { ENERGY_PER_BASIC, ENERGY_TO_CAST } from '../constants';
 import type { ControlStatus } from '../types';
 import type { BattleContext } from './context';
-import { addEnergy, dealDamage, loseHp, removeStatus, setEnergy } from './effects';
+import { addEnergy, dealDamage, emitBuffEnd, loseHp, removeStatus, setEnergy } from './effects';
 import { runEffects, settleReactions, triggerPassives } from './passives';
 import { defaultEnemy, selectTargets } from './targeting';
-import { activeHardControl, isAlive, stat, type BattleUnit } from './unit';
+import { activeHardControl, isAlive, stat, type ActiveBuff, type BattleUnit } from './unit';
 
 // ---------------------------------------------------------------------------
 // Turn order
@@ -83,16 +83,21 @@ function tickDots(ctx: BattleContext, unit: BattleUnit): void {
   }
 }
 
-/** Buffs and DoTs lose one round; fresh ones (applied during this round end) are spared once. */
+/**
+ * Buffs and DoTs lose one round; fresh ones (applied during this round end) are spared once.
+ * Expired buffs emit `buffEnd`, expired DoTs `status off`.
+ */
 function decrementDurations(ctx: BattleContext, unit: BattleUnit): void {
-  unit.buffs = unit.buffs.filter((buff) => {
-    if (buff.fresh) {
-      buff.fresh = false;
-      return true;
+  const kept: ActiveBuff[] = [];
+  for (const buff of unit.buffs) {
+    if (buff.fresh) buff.fresh = false;
+    else if (--buff.remaining <= 0) {
+      emitBuffEnd(ctx, unit, buff);
+      continue;
     }
-    buff.remaining--;
-    return buff.remaining > 0;
-  });
+    kept.push(buff);
+  }
+  unit.buffs = kept;
   for (const dot of [...unit.dots]) {
     if (dot.fresh) {
       dot.fresh = false;
@@ -116,5 +121,7 @@ export function roundEnd(ctx: BattleContext, order: readonly BattleUnit[]): void
     if (ctx.over) return;
     if (isAlive(unit)) triggerPassives(ctx, unit, 'roundEnd');
   }
+  // The last roundEnd passive may have ended the battle: nothing may follow battleEnd.
+  if (ctx.over) return;
   for (const unit of order) if (isAlive(unit)) decrementDurations(ctx, unit);
 }

@@ -80,15 +80,15 @@ const SHADOW_HEROES: HeroDef[] = [
     emoji: '🌙',
     active: {
       name: 'Uyku Şarkısı',
-      description: 'Canı en düşük müttefiki %150 saldırı gücü kadar iyileştirir ve ona 20 enerji verir.',
-      effects: [heal('lowestHpAlly', 1.5), energy('previous', 20)],
+      description: 'Canı en düşük müttefiki %180 saldırı gücü kadar iyileştirir ve ona 30 enerji verir.',
+      effects: [heal('lowestHpAlly', 1.8), energy('previous', 30)],
     },
     passives: [
       {
         name: 'Gece Masalı',
-        description: 'Her tur sonunda canı en düşük müttefiki %40 saldırı gücü kadar iyileştirir.',
+        description: 'Her tur sonunda canı en düşük müttefiki %50 saldırı gücü kadar iyileştirir.',
         trigger: 'roundEnd',
-        effects: [heal('lowestHpAlly', 0.4)],
+        effects: [heal('lowestHpAlly', 0.5)],
       },
     ],
   },
@@ -135,12 +135,12 @@ const SHADOW_HEROES: HeroDef[] = [
     heroClass: 'ranger',
     rarity: 4,
     base: { hp: 730, atk: 93, armor: 17, spd: 106 },
-    innate: { hit: 0.1, crit: 0.05 },
+    innate: { crit: 0.1 },
     emoji: '🦉',
     active: {
       name: 'Ayaz Okları',
-      description: 'Rastgele 3 düşmana %150 saldırı hasarı verir ve %20 şansla 1 tur dondurur.',
-      effects: [damage(randomEnemies(3), 1.5), control('previous', 'freeze', 0.2, 1)],
+      description: 'Rastgele 3 düşmana %170 saldırı hasarı verir ve %20 şansla 1 tur dondurur.',
+      effects: [damage(randomEnemies(3), 1.7), control('previous', 'freeze', 0.2, 1)],
     },
     passives: [
       {
@@ -150,10 +150,10 @@ const SHADOW_HEROES: HeroDef[] = [
       },
       {
         name: 'Sis Perdesi',
-        description: 'Hasar aldığında %25 şansla 2 tur %15 kaçınma kazanır.',
+        description: 'Hasar aldığında %40 şansla 2 tur %20 kaçınma kazanır.',
         trigger: 'onHit',
-        chance: 0.25,
-        effects: [buff('self', 'dodge', 0.15, 2)],
+        chance: 0.4,
+        effects: [buff('self', 'dodge', 0.2, 2)],
       },
     ],
   },
@@ -169,8 +169,8 @@ const SHADOW_HEROES: HeroDef[] = [
     emoji: '🌘️',
     active: {
       name: 'Kara Tutulma',
-      description: 'Tüm düşmanlara %110 saldırı hasarı verir, enerjilerini 30 azaltır ve %25 şansla 2 tur susturur.',
-      effects: [damage('allEnemies', 1.1), energy('previous', -30), control('previous', 'silence', 0.25, 2)],
+      description: 'Tüm düşmanlara %110 saldırı hasarı verir, enerjilerini 10 azaltır ve %20 şansla 2 tur susturur.',
+      effects: [damage('allEnemies', 1.1), energy('previous', -10), control('previous', 'silence', 0.2, 2)],
     },
     passives: [
       {
@@ -180,14 +180,15 @@ const SHADOW_HEROES: HeroDef[] = [
       },
       {
         name: 'Yeni Ay',
-        description: 'Savaş başında tüm müttefiklerin yetenek hasarını 3 tur %15 artırır.',
+        description: 'Savaş başında tüm müttefiklerin yetenek hasarını 3 tur %10 artırır.',
         trigger: 'battleStart',
-        effects: [buff('allAllies', 'skillDmg', 0.15, 3)],
+        effects: [buff('allAllies', 'skillDmg', 0.1, 3)],
       },
       {
         name: 'Gölge Emici',
-        description: 'Her tur sonunda saldırısı en yüksek düşmanın enerjisini 20 azaltır.',
+        description: 'Her tur sonunda %25 şansla saldırısı en yüksek düşmanın enerjisini 20 azaltır.',
         trigger: 'roundEnd',
+        chance: 0.25,
         effects: [energy('highestAtkEnemy', -20)],
       },
     ],
@@ -205,10 +206,11 @@ const SHADOW_HEROES: HeroDef[] = [
     active: {
       name: 'Gece Yarısı İnfazı',
       description:
-        "Canı en düşük düşmana zırhının %30'unu yok sayarak %300 saldırı hasarı verir (kanayan hedeflere %40 fazla), 3 tur boyunca her tur %30 saldırı hasarı kadar kanama uygular ve kendi saldırısını 2 tur %20 artırır.",
+        "Canı en düşük düşmana 3 tur boyunca her tur %30 saldırı hasarı kadar kanama uygular, ardından zırhının %30'unu yok sayarak %300 saldırı hasarı verir (kanayan hedeflere %20 fazla) ve kendi saldırısını 2 tur %20 artırır.",
+      // The bleed lands first so the bonus against bleeding targets applies to this very hit.
       effects: [
-        damage('lowestHpEnemy', 3.0, { ignoreArmor: 0.3, bonusVsStatus: vs('bleed', 1.4) }),
-        dot('previous', 'bleed', 1, 3, 0.3),
+        dot('lowestHpEnemy', 'bleed', 1, 3, 0.3),
+        damage('previous', 3.0, { ignoreArmor: 0.3, bonusVsStatus: vs('bleed', 1.2) }),
         buff('self', 'atk', 0.2, 2),
       ],
     },
@@ -272,13 +274,13 @@ const FORTRESS_HEROES: HeroDef[] = [
     heroClass: 'mage',
     rarity: 3,
     base: { hp: 640, atk: 89, armor: 14, spd: 97 },
-    innate: { hit: 0.05 },
+    innate: { crit: 0.05 },
     emoji: '💣',
     active: {
       name: 'Barut Fıçısı',
       description:
-        'Tüm düşmanlara %90 saldırı hasarı verir ve %40 şansla 2 tur boyunca her tur %20 saldırı hasarı kadar yanma uygular.',
-      effects: [damage('allEnemies', 0.9), dot('previous', 'burn', 0.4, 2, 0.2)],
+        'Tüm düşmanlara %100 saldırı hasarı verir ve %40 şansla 2 tur boyunca her tur %20 saldırı hasarı kadar yanma uygular.',
+      effects: [damage('allEnemies', 1.0), dot('previous', 'burn', 0.4, 2, 0.2)],
     },
     passives: [
       {
@@ -306,20 +308,20 @@ const FORTRESS_HEROES: HeroDef[] = [
     emoji: '🔔',
     active: {
       name: 'Kutsal Çan',
-      description: 'Tüm müttefikleri %60 saldırı gücü kadar iyileştirir ve zırhlarını 2 tur %20 artırır.',
-      effects: [heal('allAllies', 0.6), buff('previous', 'armor', 0.2, 2)],
+      description: 'Tüm müttefikleri %80 saldırı gücü kadar iyileştirir ve zırhlarını 2 tur %20 artırır.',
+      effects: [heal('allAllies', 0.8), buff('previous', 'armor', 0.2, 2)],
     },
     passives: [
       {
         name: 'İnanç Zırhı',
-        description: 'Kalıcı olarak %12 can ve %10 kontrol bağışıklığı kazanır.',
-        stats: { hp: 0.12, controlImmune: 0.1 },
+        description: 'Kalıcı olarak %12 can, %15 saldırı ve %10 kontrol bağışıklığı kazanır.',
+        stats: { hp: 0.12, atk: 0.15, controlImmune: 0.1 },
       },
       {
         name: 'Akşam Duası',
-        description: 'Her tur sonunda canı en düşük müttefiki %50 saldırı gücü kadar iyileştirir.',
+        description: 'Her tur sonunda canı en düşük müttefiki %70 saldırı gücü kadar iyileştirir.',
         trigger: 'roundEnd',
-        effects: [heal('lowestHpAlly', 0.5)],
+        effects: [heal('lowestHpAlly', 0.7)],
       },
     ],
   },
@@ -331,7 +333,7 @@ const FORTRESS_HEROES: HeroDef[] = [
     heroClass: 'ranger',
     rarity: 5,
     base: { hp: 760, atk: 100, armor: 19, spd: 107 },
-    innate: { hit: 0.15, crit: 0.05 },
+    innate: { crit: 0.1, critDmg: 0.1 },
     emoji: '🦅',
     active: {
       name: 'Delici Cıvata',
@@ -357,9 +359,9 @@ const FORTRESS_HEROES: HeroDef[] = [
       },
       {
         name: 'Ardışık Atış',
-        description: 'Her saldırıdan sonra %25 şansla rastgele bir düşmana %120 saldırı hasarı verir.',
+        description: 'Her saldırıdan sonra %35 şansla rastgele bir düşmana %120 saldırı hasarı verir.',
         trigger: 'onAttack',
-        chance: 0.25,
+        chance: 0.35,
         effects: [damage(randomEnemies(1), 1.2)],
       },
     ],
@@ -392,16 +394,16 @@ const FORTRESS_HEROES: HeroDef[] = [
       },
       {
         name: 'Sarsılmaz',
-        description: 'Hasar aldığında %30 şansla 2 tur %15 zırh kazanır.',
+        description: 'Hasar aldığında %30 şansla 25 enerji kazanır.',
         trigger: 'onHit',
         chance: 0.3,
-        effects: [buff('self', 'armor', 0.15, 2)],
+        effects: [energy('self', 25)],
       },
       {
         name: 'Son Siper',
-        description: 'Öldüğünde tüm müttefiklerin hasar azaltmasını 3 tur %15 artırır.',
-        trigger: 'onDeath',
-        effects: [buff('allAllies', 'dmgReduce', 0.15, 3)],
+        description: 'Savaş başında tüm müttefiklerin hasar azaltmasını 2 tur %10 artırır.',
+        trigger: 'battleStart',
+        effects: [buff('allAllies', 'dmgReduce', 0.1, 2)],
       },
     ],
   },
@@ -420,12 +422,12 @@ const ABYSS_HEROES: HeroDef[] = [
     heroClass: 'ranger',
     rarity: 2,
     base: { hp: 660, atk: 86, armor: 15, spd: 101 },
-    innate: { hit: 0.08 },
+    innate: { crit: 0.08 },
     emoji: '🎯',
     active: {
       name: 'Çifte Kükürt',
-      description: 'Ön sıradaki rastgele bir düşmana iki ok atarak %140 ve %130 saldırı hasarı verir.',
-      effects: [damage('defaultEnemy', 1.4), damage('previous', 1.3)],
+      description: 'Ön sıradaki rastgele bir düşmana iki ok atarak %170 ve %160 saldırı hasarı verir.',
+      effects: [damage('defaultEnemy', 1.7), damage('previous', 1.6)],
     },
     passives: [
       {
@@ -450,8 +452,8 @@ const ABYSS_HEROES: HeroDef[] = [
     active: {
       name: 'Kor Duası',
       description:
-        'Canı en düşük müttefiki %160 saldırı gücü kadar iyileştirir ve tüm müttefiklerin saldırısını 2 tur %12 artırır.',
-      effects: [heal('lowestHpAlly', 1.6), buff('allAllies', 'atk', 0.12, 2)],
+        'Canı en düşük müttefiki %190 saldırı gücü kadar iyileştirir ve tüm müttefiklerin saldırısını 2 tur %12 artırır.',
+      effects: [heal('lowestHpAlly', 1.9), buff('allAllies', 'atk', 0.12, 2)],
     },
     passives: [
       {
@@ -461,10 +463,9 @@ const ABYSS_HEROES: HeroDef[] = [
       },
       {
         name: 'Ocak Bekçisi',
-        description: 'Her tur sonunda %50 şansla rastgele bir müttefike 20 enerji verir.',
+        description: 'Her tur sonunda rastgele 2 müttefiki %30 saldırı gücü kadar iyileştirir.',
         trigger: 'roundEnd',
-        chance: 0.5,
-        effects: [energy(randomAllies(1), 20)],
+        effects: [heal(randomAllies(2), 0.3)],
       },
     ],
   },
@@ -481,10 +482,11 @@ const ABYSS_HEROES: HeroDef[] = [
     active: {
       name: 'Kül Dansı',
       description:
-        'Arka sıradaki düşmanlara %140 saldırı hasarı verir (yanan hedeflere %40 fazla) ve %50 şansla 2 tur boyunca her tur %25 saldırı hasarı kadar yanma uygular.',
+        'Arka sıradaki düşmanlara %50 şansla 2 tur boyunca her tur %25 saldırı hasarı kadar yanma uygular, ardından onlara %140 saldırı hasarı verir (yanan hedeflere %40 fazla).',
+      // The burn lands first so the bonus against burning targets applies to this very hit.
       effects: [
-        damage('backEnemies', 1.4, { bonusVsStatus: vs('burn', 1.4) }),
-        dot('previous', 'burn', 0.5, 2, 0.25),
+        dot('backEnemies', 'burn', 0.5, 2, 0.25),
+        damage('previous', 1.4, { bonusVsStatus: vs('burn', 1.4) }),
       ],
     },
     passives: [
@@ -511,37 +513,37 @@ const ABYSS_HEROES: HeroDef[] = [
     heroClass: 'mage',
     rarity: 5,
     base: { hp: 700, atk: 100, armor: 16, spd: 101 },
-    innate: { hit: 0.05, crit: 0.05 },
+    innate: { crit: 0.05 },
     emoji: '🌋',
     active: {
       name: 'Lav Seli',
       description:
-        'Tüm düşmanlara %105 saldırı hasarı verir, %75 şansla 3 tur boyunca her tur %30 saldırı hasarı kadar yanma uygular ve zırhlarını 2 tur %15 azaltır.',
+        'Tüm düşmanlara %100 saldırı hasarı verir, %50 şansla 3 tur boyunca her tur %25 saldırı hasarı kadar yanma uygular ve zırhlarını 2 tur %15 azaltır.',
       effects: [
-        damage('allEnemies', 1.05),
-        dot('previous', 'burn', 0.75, 3, 0.3),
+        damage('allEnemies', 1.0),
+        dot('previous', 'burn', 0.5, 3, 0.25),
         buff('previous', 'armor', -0.15, 2),
       ],
     },
     passives: [
       {
         name: 'Magma Kalbi',
-        description: 'Kalıcı olarak %20 saldırı ve %10 yetenek hasarı kazanır.',
-        stats: { atk: 0.2, skillDmg: 0.1 },
+        description: 'Kalıcı olarak %12 saldırı ve %10 yetenek hasarı kazanır.',
+        stats: { atk: 0.12, skillDmg: 0.1 },
       },
       {
         name: 'Alev Dalgası',
-        description: 'Her tur sonunda %35 şansla rastgele 2 düşmana %60 saldırı hasarı verir.',
+        description: 'Her tur sonunda %30 şansla rastgele 2 düşmana %60 saldırı hasarı verir.',
         trigger: 'roundEnd',
-        chance: 0.35,
+        chance: 0.3,
         effects: [damage(randomEnemies(2), 0.6)],
       },
       {
         name: 'Küllerden Doğuş',
         description:
-          'Öldüğünde tüm düşmanlara %80 saldırı hasarı verir ve 2 tur boyunca her tur %20 saldırı hasarı kadar yanma uygular.',
+          'Öldüğünde tüm düşmanlara %60 saldırı hasarı verir ve 2 tur boyunca her tur %20 saldırı hasarı kadar yanma uygular.',
         trigger: 'onDeath',
-        effects: [damage('allEnemies', 0.8), dot('previous', 'burn', 1, 2, 0.2)],
+        effects: [damage('allEnemies', 0.6), dot('previous', 'burn', 1, 2, 0.2)],
       },
     ],
   },
@@ -606,8 +608,8 @@ const FOREST_HEROES: HeroDef[] = [
     active: {
       name: 'Spor Bulutu',
       description:
-        'Tüm düşmanlara %85 saldırı hasarı verir ve %25 şansla 2 tur boyunca her tur %15 saldırı hasarı kadar zehirler.',
-      effects: [damage('allEnemies', 0.85), dot('previous', 'poison', 0.25, 2, 0.15)],
+        'Tüm düşmanlara %95 saldırı hasarı verir ve %35 şansla 2 tur boyunca her tur %15 saldırı hasarı kadar zehirler.',
+      effects: [damage('allEnemies', 0.95), dot('previous', 'poison', 0.35, 2, 0.15)],
     },
     passives: [
       {
@@ -630,8 +632,8 @@ const FOREST_HEROES: HeroDef[] = [
     active: {
       name: 'Zehirli Sarmal',
       description:
-        'Canı en düşük düşmana %260 saldırı hasarı verir ve 3 tur boyunca her tur %25 saldırı hasarı kadar zehirler.',
-      effects: [damage('lowestHpEnemy', 2.6), dot('previous', 'poison', 1, 3, 0.25)],
+        'Canı en düşük düşmana %290 saldırı hasarı verir ve 3 tur boyunca her tur %25 saldırı hasarı kadar zehirler.',
+      effects: [damage('lowestHpEnemy', 2.9), dot('previous', 'poison', 1, 3, 0.25)],
     },
     passives: [
       {
@@ -641,10 +643,9 @@ const FOREST_HEROES: HeroDef[] = [
       },
       {
         name: 'Zehir Kesesi',
-        description:
-          'Öldüğünde tüm düşmanlara %50 şansla 2 tur boyunca her tur %20 saldırı hasarı kadar zehir uygular.',
+        description: 'Öldüğünde tüm düşmanlara 2 tur boyunca her tur %20 saldırı hasarı kadar zehir uygular.',
         trigger: 'onDeath',
-        effects: [dot('allEnemies', 'poison', 0.5, 2, 0.2)],
+        effects: [dot('allEnemies', 'poison', 1, 2, 0.2)],
       },
     ],
   },
@@ -661,9 +662,9 @@ const FOREST_HEROES: HeroDef[] = [
     active: {
       name: 'Kök Kıskacı',
       description:
-        'Ön sıradaki düşmanlara %140 saldırı hasarı verir, %30 şansla 1 tur sersemletir ve kendi hasar azaltmasını 2 tur %15 artırır.',
+        'Ön sıradaki düşmanlara %160 saldırı hasarı verir, %30 şansla 1 tur sersemletir ve kendi hasar azaltmasını 2 tur %15 artırır.',
       effects: [
-        damage('frontEnemies', 1.4),
+        damage('frontEnemies', 1.6),
         control('previous', 'stun', 0.3, 1),
         buff('self', 'dmgReduce', 0.15, 2),
       ],
@@ -690,7 +691,7 @@ const FOREST_HEROES: HeroDef[] = [
     heroClass: 'ranger',
     rarity: 5,
     base: { hp: 780, atk: 97, armor: 18, spd: 109 },
-    innate: { hit: 0.1, crit: 0.08 },
+    innate: { crit: 0.1 },
     emoji: '🦌',
     active: {
       name: 'Diken Fırtınası',
@@ -705,8 +706,8 @@ const FOREST_HEROES: HeroDef[] = [
     passives: [
       {
         name: 'Yaban Ruhu',
-        description: 'Kalıcı olarak %15 saldırı ve %10 isabet kazanır.',
-        stats: { atk: 0.15, hit: 0.1 },
+        description: 'Kalıcı olarak %15 saldırı ve %10 zırh delme kazanır.',
+        stats: { atk: 0.15, armorBreak: 0.1 },
       },
       {
         name: 'Rüzgâr Gibi',
@@ -735,8 +736,8 @@ const FOREST_HEROES: HeroDef[] = [
     active: {
       name: 'Kadim Filiz',
       description:
-        'Tüm müttefikleri %75 saldırı gücü kadar iyileştirir ve onlara 15 enerji verir; ardından canı en düşük müttefiki %100 saldırı gücü kadar daha iyileştirir.',
-      effects: [heal('allAllies', 0.75), energy('previous', 15), heal('lowestHpAlly', 1.0)],
+        'Tüm müttefikleri %65 saldırı gücü kadar iyileştirir ve onlara 10 enerji verir; ardından canı en düşük müttefiki %100 saldırı gücü kadar daha iyileştirir.',
+      effects: [heal('allAllies', 0.65), energy('previous', 10), heal('lowestHpAlly', 1.0)],
     },
     passives: [
       {
@@ -746,9 +747,9 @@ const FOREST_HEROES: HeroDef[] = [
       },
       {
         name: 'Yaprak Yağmuru',
-        description: 'Her tur sonunda tüm müttefikleri %25 saldırı gücü kadar iyileştirir.',
+        description: 'Her tur sonunda canı en düşük müttefiki %40 saldırı gücü kadar iyileştirir.',
         trigger: 'roundEnd',
-        effects: [heal('allAllies', 0.25)],
+        effects: [heal('lowestHpAlly', 0.4)],
       },
       {
         name: 'Toprağa Dönüş',
@@ -777,8 +778,8 @@ const DARK_HEROES: HeroDef[] = [
     active: {
       name: 'Ruh Merhemi',
       description:
-        'Tüm müttefikleri %45 saldırı gücü kadar iyileştirir ve saldırısı en yüksek düşmanın saldırısını 2 tur %15 azaltır.',
-      effects: [heal('allAllies', 0.45), buff('highestAtkEnemy', 'atk', -0.15, 2)],
+        'Tüm müttefikleri %80 saldırı gücü kadar iyileştirir ve saldırısı en yüksek düşmanın saldırısını 2 tur %15 azaltır.',
+      effects: [heal('allAllies', 0.8), buff('highestAtkEnemy', 'atk', -0.15, 2)],
     },
     passives: [
       {
@@ -797,19 +798,19 @@ const DARK_HEROES: HeroDef[] = [
     heroClass: 'ranger',
     rarity: 3,
     base: { hp: 690, atk: 89, armor: 16, spd: 103 },
-    innate: { hit: 0.1 },
+    innate: { crit: 0.1 },
     emoji: '🦂',
     active: {
       name: 'Akrep İğnesi',
       description:
-        'Rastgele bir düşmana %260 saldırı hasarı verir ve %60 şansla 3 tur boyunca her tur %25 saldırı hasarı kadar zehirler.',
-      effects: [damage(randomEnemies(1), 2.6), dot('previous', 'poison', 0.6, 3, 0.25)],
+        'Rastgele bir düşmana %290 saldırı hasarı verir ve %60 şansla 3 tur boyunca her tur %25 saldırı hasarı kadar zehirler.',
+      effects: [damage(randomEnemies(1), 2.9), dot('previous', 'poison', 0.6, 3, 0.25)],
     },
     passives: [
       {
         name: 'Sert Kabuk',
-        description: 'Kalıcı olarak %10 zırh ve %8 isabet kazanır.',
-        stats: { armor: 0.1, hit: 0.08 },
+        description: 'Kalıcı olarak %10 zırh ve %8 zırh delme kazanır.',
+        stats: { armor: 0.1, armorBreak: 0.08 },
       },
       {
         name: 'Zehirli Kuyruk',
@@ -831,8 +832,8 @@ const DARK_HEROES: HeroDef[] = [
     emoji: '🕸️',
     active: {
       name: 'Taş Laneti',
-      description: 'Tüm düşmanlara %95 saldırı hasarı verir ve %15 şansla 2 tur taşlaştırır.',
-      effects: [damage('allEnemies', 0.95), control('previous', 'petrify', 0.15, 2)],
+      description: 'Tüm düşmanlara %105 saldırı hasarı verir ve %15 şansla 2 tur taşlaştırır.',
+      effects: [damage('allEnemies', 1.05), control('previous', 'petrify', 0.15, 2)],
     },
     passives: [
       {
@@ -862,8 +863,8 @@ const DARK_HEROES: HeroDef[] = [
     active: {
       name: 'Ruh Hasadı',
       description:
-        'Arka sıradaki düşmanlara %170 saldırı hasarı verir, enerjilerini 25 azaltır ve %20 şansla 1 tur dondurur.',
-      effects: [damage('backEnemies', 1.7), energy('previous', -25), control('previous', 'freeze', 0.2, 1)],
+        'Arka sıradaki düşmanlara %150 saldırı hasarı verir, enerjilerini 15 azaltır ve %20 şansla 1 tur dondurur.',
+      effects: [damage('backEnemies', 1.5), energy('previous', -15), control('previous', 'freeze', 0.2, 1)],
     },
     passives: [
       {
@@ -873,16 +874,16 @@ const DARK_HEROES: HeroDef[] = [
       },
       {
         name: 'Ruh Emici',
-        description: 'Her saldırıdan sonra %40 şansla kendini %80 saldırı gücü kadar iyileştirir.',
+        description: 'Her saldırıdan sonra %30 şansla kendini %80 saldırı gücü kadar iyileştirir.',
         trigger: 'onAttack',
-        chance: 0.4,
+        chance: 0.3,
         effects: [heal('self', 0.8)],
       },
       {
         name: 'Son Nefes',
-        description: 'Öldüğünde canı en düşük düşmana %200 saldırı hasarı verir.',
+        description: 'Öldüğünde canı en düşük düşmana %150 saldırı hasarı verir.',
         trigger: 'onDeath',
-        effects: [damage('lowestHpEnemy', 2.0)],
+        effects: [damage('lowestHpEnemy', 1.5)],
       },
     ],
   },
@@ -899,8 +900,8 @@ const DARK_HEROES: HeroDef[] = [
     active: {
       name: 'Kemik Yarması',
       description:
-        'Ön sıradaki düşmanlara %150 saldırı hasarı verir, zırhlarını 2 tur %25 azaltır ve kendini %150 saldırı gücü kadar iyileştirir.',
-      effects: [damage('frontEnemies', 1.5), buff('previous', 'armor', -0.25, 2), heal('self', 1.5)],
+        'Ön sıradaki düşmanlara %150 saldırı hasarı verir, zırhlarını 2 tur %25 azaltır ve kendini %100 saldırı gücü kadar iyileştirir.',
+      effects: [damage('frontEnemies', 1.5), buff('previous', 'armor', -0.25, 2), heal('self', 1.0)],
     },
     passives: [
       {
@@ -910,16 +911,16 @@ const DARK_HEROES: HeroDef[] = [
       },
       {
         name: 'Ölüm Reddi',
-        description: 'Hasar aldığında %20 şansla kendini %100 saldırı gücü kadar iyileştirir.',
+        description: 'Hasar aldığında %15 şansla kendini %50 saldırı gücü kadar iyileştirir.',
         trigger: 'onHit',
-        chance: 0.2,
-        effects: [heal('self', 1.0)],
+        chance: 0.15,
+        effects: [heal('self', 0.5)],
       },
       {
         name: 'Lejyon Çağrısı',
-        description: 'Bir müttefik öldüğünde kendini %150 saldırı gücü kadar iyileştirir ve 3 tur %20 zırh kazanır.',
+        description: 'Bir müttefik öldüğünde kendini %60 saldırı gücü kadar iyileştirir ve 3 tur %15 zırh kazanır.',
         trigger: 'onAllyDeath',
-        effects: [heal('self', 1.5), buff('self', 'armor', 0.2, 3)],
+        effects: [heal('self', 0.6), buff('self', 'armor', 0.15, 3)],
       },
     ],
   },
@@ -961,24 +962,24 @@ const LIGHT_HEROES: HeroDef[] = [
     heroClass: 'ranger',
     rarity: 3,
     base: { hp: 700, atk: 88, armor: 16, spd: 104 },
-    innate: { hit: 0.08, crit: 0.05 },
+    innate: { crit: 0.1 },
     emoji: '🕊️',
     active: {
       name: 'Gün Oku',
-      description: 'Saldırısı en yüksek düşmana %260 saldırı hasarı verir ve zırhını 2 tur %20 azaltır.',
-      effects: [damage('highestAtkEnemy', 2.6), buff('previous', 'armor', -0.2, 2)],
+      description: 'Saldırısı en yüksek düşmana %290 saldırı hasarı verir ve zırhını 2 tur %20 azaltır.',
+      effects: [damage('highestAtkEnemy', 2.9), buff('previous', 'armor', -0.2, 2)],
     },
     passives: [
       {
         name: 'Beyaz Tüy',
-        description: 'Kalıcı olarak %8 isabet ve 4 hız kazanır.',
-        stats: { hit: 0.08, spd: 4 },
+        description: 'Kalıcı olarak %8 zırh delme ve 4 hız kazanır.',
+        stats: { armorBreak: 0.08, spd: 4 },
       },
       {
         name: 'Umut Işığı',
-        description: 'Her saldırıdan sonra %30 şansla canı en düşük müttefiki %80 saldırı gücü kadar iyileştirir.',
+        description: 'Her saldırıdan sonra %40 şansla canı en düşük müttefiki %80 saldırı gücü kadar iyileştirir.',
         trigger: 'onAttack',
-        chance: 0.3,
+        chance: 0.4,
         effects: [heal('lowestHpAlly', 0.8)],
       },
     ],
@@ -995,21 +996,21 @@ const LIGHT_HEROES: HeroDef[] = [
     emoji: '⚡️',
     active: {
       name: 'Yıldırım Sıçraması',
-      description: 'Rastgele 2 düşmana %190 saldırı hasarı verir ve %20 şansla 1 tur sersemletir.',
-      effects: [damage(randomEnemies(2), 1.9), control('previous', 'stun', 0.2, 1)],
+      description: 'Rastgele 2 düşmana %220 saldırı hasarı verir ve %30 şansla 1 tur sersemletir.',
+      effects: [damage(randomEnemies(2), 2.2), control('previous', 'stun', 0.3, 1)],
     },
     passives: [
       {
         name: 'Hızlı Adım',
-        description: 'Kalıcı olarak %8 kritik şansı ve 6 hız kazanır.',
-        stats: { crit: 0.08, spd: 6 },
+        description: 'Kalıcı olarak %12 kritik şansı ve 6 hız kazanır.',
+        stats: { crit: 0.12, spd: 6 },
       },
       {
         name: 'Statik Yük',
-        description: 'Her saldırıdan sonra %25 şansla 30 enerji kazanır.',
+        description: 'Her saldırıdan sonra %40 şansla 40 enerji kazanır.',
         trigger: 'onAttack',
-        chance: 0.25,
-        effects: [energy('self', 30)],
+        chance: 0.4,
+        effects: [energy('self', 40)],
       },
     ],
   },
@@ -1026,24 +1027,24 @@ const LIGHT_HEROES: HeroDef[] = [
     active: {
       name: 'Göksel Hüküm',
       description:
-        'Tüm düşmanlara %110 saldırı hasarı verir ve %25 şansla 1 tur sersemletir; ardından canı en düşük düşmana %120 saldırı hasarı verir (sersemlemiş hedeflere %50 fazla).',
+        'Tüm düşmanlara %110 saldırı hasarı verir ve %15 şansla 1 tur sersemletir; ardından canı en düşük düşmana %120 saldırı hasarı verir (sersemlemiş hedeflere %50 fazla).',
       effects: [
         damage('allEnemies', 1.1),
-        control('previous', 'stun', 0.25, 1),
+        control('previous', 'stun', 0.15, 1),
         damage('lowestHpEnemy', 1.2, { bonusVsStatus: vs('stun', 1.5) }),
       ],
     },
     passives: [
       {
         name: 'Yıldız Tozu',
-        description: 'Kalıcı olarak %15 saldırı ve %8 kritik şansı kazanır.',
-        stats: { atk: 0.15, crit: 0.08 },
+        description: 'Kalıcı olarak %10 saldırı ve %8 kritik şansı kazanır.',
+        stats: { atk: 0.1, crit: 0.08 },
       },
       {
         name: 'Kutup Yıldızı',
-        description: 'Savaş başında tüm müttefiklerin isabetini 3 tur %10 artırır.',
+        description: 'Savaş başında tüm müttefiklerin kritik şansını 2 tur %10 artırır.',
         trigger: 'battleStart',
-        effects: [buff('allAllies', 'hit', 0.1, 3)],
+        effects: [buff('allAllies', 'crit', 0.1, 2)],
       },
       {
         name: 'Kayan Yıldız',
@@ -1066,8 +1067,8 @@ const LIGHT_HEROES: HeroDef[] = [
     active: {
       name: 'Şafak Işığı',
       description:
-        'Tüm müttefikleri %70 saldırı gücü kadar iyileştirir, saldırılarını 2 tur %20 ve kritik şanslarını 2 tur %10 artırır.',
-      effects: [heal('allAllies', 0.7), buff('previous', 'atk', 0.2, 2), buff('previous', 'crit', 0.1, 2)],
+        'Tüm müttefikleri %70 saldırı gücü kadar iyileştirir, saldırılarını 2 tur %15 ve kritik şanslarını 2 tur %10 artırır.',
+      effects: [heal('allAllies', 0.7), buff('previous', 'atk', 0.15, 2), buff('previous', 'crit', 0.1, 2)],
     },
     passives: [
       {
@@ -1077,9 +1078,9 @@ const LIGHT_HEROES: HeroDef[] = [
       },
       {
         name: 'Kutsal Uyanış',
-        description: 'Savaş başında tüm müttefiklere 20 enerji verir.',
+        description: 'Savaş başında tüm müttefiklere 15 enerji verir.',
         trigger: 'battleStart',
-        effects: [energy('allAllies', 20)],
+        effects: [energy('allAllies', 15)],
       },
       {
         name: 'Güneş Bereketi',

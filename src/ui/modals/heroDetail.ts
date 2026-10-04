@@ -5,12 +5,12 @@ import { dismissRewards } from '../../core/progression';
 import type { HeroInstance } from '../../core/types';
 import { getHeroDef } from '../../data/heroes';
 import { button, classChip, factionChip, portrait, rewardList, starRow } from '../components';
-import { runAction, safely, type Ui } from '../context';
+import { blockedBySave, runAction, safely, type Ui } from '../context';
 import { h, mount } from '../dom';
 import { fmtNum, POWER_ICON } from '../format';
 import { confirmDialog, openModal } from '../overlay';
 import { equipmentTab } from './heroEquipment';
-import { growthTab } from './heroGrowth';
+import { growthTab, levelButtons } from './heroGrowth';
 import { skillsTab } from './heroSkills';
 
 type DetailTab = 'growth' | 'equipment' | 'skills';
@@ -75,6 +75,7 @@ export function openHeroDetail(ui: Ui, uid: string, list: readonly string[] = []
   }
 
   function toggleLock(hero: HeroInstance): void {
+    if (blockedBySave(ui)) return;
     try {
       game.toggleLock(hero.uid);
       ui.toast(game.hero(hero.uid)?.locked ? 'Kahraman kilitlendi.' : 'Kilit kaldırıldı.', 'info');
@@ -84,10 +85,32 @@ export function openHeroDetail(ui: Ui, uid: string, list: readonly string[] = []
     }
   }
 
+  /** Why the hero cannot be dismissed right now (null = it can). */
+  function dismissBlocker(hero: HeroInstance): string | null {
+    if (hero.locked) return 'Kilitli kahraman serbest bırakılamaz.';
+    if (game.state.formation.includes(hero.uid)) return 'Takımdaki kahraman serbest bırakılamaz.';
+    return null;
+  }
+
+  /** Rarely used and destructive: at the end of the growth tab, disabled with the reason when blocked. */
+  function dismissSection(hero: HeroInstance): HTMLElement {
+    const blocker = dismissBlocker(hero);
+    return h(
+      'div',
+      { class: 'dismiss-section' },
+      button('🕊️ Serbest Bırak', () => void dismiss(hero), {
+        variant: 'ghost',
+        class: 'btn-dismiss btn-block',
+        disabled: !!blocker,
+        sub: blocker ? (hero.locked ? 'Kilitli — önce kilidi aç' : 'Takımda — önce takımdan çıkar') : null,
+      }),
+    );
+  }
+
   async function dismiss(hero: HeroInstance): Promise<void> {
     const def = getHeroDef(hero.heroId);
-    if (hero.locked) return ui.toast('Kilitli kahraman serbest bırakılamaz.', 'error');
-    if (game.state.formation.includes(hero.uid)) return ui.toast('Takımdaki kahraman serbest bırakılamaz.', 'error');
+    const blocker = dismissBlocker(hero);
+    if (blocker) return ui.toast(blocker, 'error');
     const ok = await confirmDialog({
       title: 'Serbest Bırak',
       danger: true,
@@ -146,9 +169,12 @@ export function openHeroDetail(ui: Ui, uid: string, list: readonly string[] = []
     const ctx: DetailCtx = { ui, hero, flash: (kind) => (pendingFlash = kind) };
     const def = getHeroDef(hero.heroId);
     modal.setTitle(`${CLASS_INFO[def.heroClass].icon} ${def.name}`);
-    const body = tab === 'growth' ? growthTab(ctx) : tab === 'equipment' ? equipmentTab(ctx) : skillsTab(def);
+    const body = tab === 'growth' ? [growthTab(ctx), dismissSection(hero)] : tab === 'equipment' ? equipmentTab(ctx) : skillsTab(def);
+    // Keep the scroll position across re-renders (a level-up must not jump the sheet back to the top).
+    const scroll = modal.body.scrollTop;
     modal.setContent(header(hero, flash), tabBar(), h('div', { class: 'hd-tab' }, body));
-    mount(modal.footer, button('🕊️ Serbest Bırak', () => void dismiss(hero), { variant: 'ghost', class: 'btn-dismiss' }));
+    modal.body.scrollTop = scroll;
+    mount(modal.footer, tab === 'growth' ? levelButtons(ctx) : null);
   }
 
   render();

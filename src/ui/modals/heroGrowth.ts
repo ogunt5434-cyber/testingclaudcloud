@@ -51,7 +51,11 @@ function canPay(cost: { gold: number; spirit: number }, res: Readonly<Resources>
   return res.gold >= cost.gold && res.spirit >= cost.spirit;
 }
 
-function levelCard(ctx: DetailCtx): HTMLElement {
+/**
+ * +1 / +10 / Maks level buttons with their costs. The hero sheet pins them in its footer while the
+ * "Gelişim" tab is open, so the most used action never scrolls out of view.
+ */
+export function levelButtons(ctx: DetailCtx): HTMLElement {
   const { hero, ui } = ctx;
   const res = ui.game.state.resources;
   const cap = levelCap(hero.stars);
@@ -70,6 +74,21 @@ function levelCard(ctx: DetailCtx): HTMLElement {
     );
   };
 
+  return h(
+    'div',
+    { class: 'btn-row three level-buttons' },
+    levelButton('+1', 1, true),
+    levelButton('+10', 10, true),
+    levelButton(affordable > 0 ? `Maks +${affordable}` : 'Maks', affordable, false),
+  );
+}
+
+function levelCard(ctx: DetailCtx): HTMLElement {
+  const { hero, ui } = ctx;
+  const cap = levelCap(hero.stars);
+  const atCap = hero.level >= cap;
+  const affordable = atCap ? 0 : affordableLevels(ui.game.state, hero, Infinity).gained;
+
   let reason: string | null = null;
   if (atCap) reason = hero.stars < MAX_STARS ? 'Seviye sınırına ulaşıldı — sınırı artırmak için yıldız yükselt.' : 'Maksimum seviyeye ulaşıldı!';
   else if (affordable === 0) reason = 'Yetersiz altın veya ruh özü.';
@@ -79,13 +98,6 @@ function levelCard(ctx: DetailCtx): HTMLElement {
     { class: 'card level-card' },
     sectionTitle('Seviye', h('span', { class: 'level-num' }, h('strong', null, String(hero.level)), ` / ${cap}`)),
     progressBar(fraction(hero.level, cap), 'level'),
-    h(
-      'div',
-      { class: 'btn-row three' },
-      levelButton('+1', 1, true),
-      levelButton('+10', 10, true),
-      levelButton(affordable > 0 ? `Maks +${affordable}` : 'Maks', affordable, false),
-    ),
     reason ? h('p', { class: ['reason', atCap && hero.stars >= MAX_STARS ? 'good' : null] }, reason) : null,
   );
 }

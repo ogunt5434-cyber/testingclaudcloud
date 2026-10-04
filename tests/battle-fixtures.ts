@@ -103,7 +103,7 @@ interface Tracked {
 
 /**
  * Validates the internal consistency of a battle result. Returns a list of violations (empty = OK).
- * Checks hp bookkeeping, dead units never acting/being targeted, energy ranges, status on/off pairing,
+ * Checks hp bookkeeping, dead units never acting/being targeted, energy ranges, status on/off and buff/buffEnd pairing,
  * round counting, the single final battleEnd, winner logic, final snapshots and unitStats totals.
  */
 export function checkInvariants(setup: BattleSetup, result: BattleResult): string[] {
@@ -137,6 +137,8 @@ export function checkInvariants(setup: BattleSetup, result: BattleResult): strin
   };
 
   const activeStatus = new Set<string>();
+  /** `side:pos|stat|amount` -> number of active buffs (buff events not yet matched by buffEnd). */
+  const activeBuffs = new Map<string, number>();
   let round = 0;
   let actedThisRound = new Set<string>();
   let endCount = 0;
@@ -210,10 +212,23 @@ export function checkInvariants(setup: BattleSetup, result: BattleResult): strin
         }
         break;
       }
-      case 'buff':
+      case 'buff': {
         alive(i, e.target, 'buff');
         if (e.stat === 'hp') fail(i, 'hp buff emitted');
+        if (!(e.duration >= 1)) fail(i, `buff with duration ${e.duration}`);
+        const k = `${refKey(e.target)}|${e.stat}|${e.amount}`;
+        activeBuffs.set(k, (activeBuffs.get(k) ?? 0) + 1);
         break;
+      }
+      case 'buffEnd': {
+        get(i, e.target);
+        const k = `${refKey(e.target)}|${e.stat}|${e.amount}`;
+        const n = activeBuffs.get(k) ?? 0;
+        if (n === 0) fail(i, `buffEnd without buff: ${k}`);
+        else if (n === 1) activeBuffs.delete(k);
+        else activeBuffs.set(k, n - 1);
+        break;
+      }
       case 'passive':
         get(i, e.actor);
         break;
@@ -238,6 +253,9 @@ export function checkInvariants(setup: BattleSetup, result: BattleResult): strin
 
   for (const k of activeStatus) {
     if (units.get(k.split('|')[0])?.dead) errors.push(`status still active on dead unit: ${k}`);
+  }
+  for (const k of activeBuffs.keys()) {
+    if (units.get(k.split('|')[0])?.dead) errors.push(`buff still active on dead unit: ${k}`);
   }
 
   const sideDead = (side: string): boolean =>

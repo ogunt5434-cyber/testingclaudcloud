@@ -4,13 +4,16 @@ import { Rng } from '../src/core/rng';
 import {
   deserialize,
   loadGame,
+  loadSave,
   newGameState,
   SAVE_KEY,
   SAVE_VERSION,
   saveGame,
   serialize,
   STARTING_RESOURCES,
+  storedSaveRev,
 } from '../src/core/save';
+import { summon, UID_LIMIT } from '../src/core/summon';
 import { getHeroDef } from '../src/data/heroes';
 
 class MemoryStorage implements Storage {
@@ -145,6 +148,62 @@ describe('serialize / deserialize', () => {
     expect(state.player).toEqual({ name: 'Kahraman', level: 1, exp: 0 });
   });
 
+  it('never puts a hero below its natural rarity, so levels that fit it survive', () => {
+    const raw = mutated((r) => {
+      const heroes = r.heroes as Record<string, unknown>[];
+      heroes.push({ uid: 'hx', heroId: 'batur', level: 55, equipment: {}, locked: true }); // no stars
+      heroes.push({ uid: 'hy', heroId: 'batur', level: 30, stars: 1, equipment: {} });
+      heroes.push({ uid: 'hz', heroId: 'arslan', level: 7, stars: 'x', equipment: {} });
+    });
+    const byUid = new Map(deserialize(raw, NOW)!.heroes.map((h) => [h.uid, h]));
+    expect(getHeroDef('batur').rarity).toBe(3);
+    expect(byUid.get('hx')).toMatchObject({ stars: 3, level: 55, locked: true });
+    expect(byUid.get('hy')).toMatchObject({ stars: 3, level: 30 });
+    expect(byUid.get('hz')).toMatchObject({ stars: getHeroDef('arslan').rarity, level: 7 });
+  });
+
+  it('keeps the uid counter exact for crafted saves, so summoning never stalls', () => {
+    const crafted: ((r: Record<string, unknown>) => void)[] = [
+      (r) => (r.nextUid = 1e300),
+      (r) => (r.nextUid = 2 ** 53 + 10),
+      (r) => ((r.heroes as Record<string, unknown>[])[4].uid = 'h99999999999999999999'),
+    ];
+    for (const craft of crafted) {
+      const state = deserialize(mutated(craft), NOW)!;
+      expect(Number.isSafeInteger(state.nextUid)).toBe(true);
+      expect(state.nextUid).toBeLessThan(UID_LIMIT);
+      state.resources.basicScroll = 30;
+      for (let i = 0; i < 3; i++) expect(summon(state, 'basic', 10, new Rng(i)).ok).toBe(true);
+      expect(new Set(state.heroes.map((h) => h.uid)).size).toBe(state.heroes.length);
+    }
+  });
+
+  it('round-trips and sanitizes the banked idle chest and the idle clock mark', () => {
+    const state = newGameState(NOW);
+    state.campaign = {
+      cleared: 12,
+      idleSince: NOW - 5 * 3_600_000,
+      idleBank: { until: NOW - 3_600_000, rewards: { resources: { gold: 500, basicScroll: 1 }, playerExp: 30, equipment: { weapon_t1: 1 } } },
+      idlePaidUntil: NOW,
+    };
+    expect(deserialize(serialize(state), NOW)).toEqual(state);
+    const bad = mutated((r) => {
+      r.campaign = {
+        cleared: 3,
+        idleSince: NOW,
+        idleBank: { until: NOW, rewards: { resources: { gold: -5, gems: 'x', spirit: 2.7 }, playerExp: null, equipment: { fake: 2, boots_t1: 1 } } },
+        idlePaidUntil: 'soon',
+      };
+    });
+    expect(deserialize(bad, NOW)!.campaign).toEqual({
+      cleared: 3,
+      idleSince: NOW,
+      idleBank: { until: NOW, rewards: { resources: { spirit: 2 }, equipment: { boots_t1: 1 } } },
+    });
+    const noTime = mutated((r) => (r.campaign = { cleared: 3, idleSince: NOW, idleBank: { rewards: { resources: { gold: 9 } } } }));
+    expect(deserialize(noTime, NOW)!.campaign).toEqual({ cleared: 3, idleSince: NOW });
+  });
+
   it('repairs the formation', () => {
     const dupes = mutated((r) => {
       const f = r.formation as (string | null)[];
@@ -201,15 +260,37 @@ describe('storage', () => {
     expect(loadGame(throwingStorage, NOW)).toEqual(fresh);
   });
 
-  it('saveGame never throws', () => {
+  it('saveGame never throws and reports whether it wrote', () => {
     const state = newGameState(NOW);
     expect(() => saveGame(null, state)).not.toThrow();
+    expect(saveGame(null, state)).toBe(false);
     expect(() => saveGame(throwingStorage, state)).not.toThrow();
+    expect(saveGame(throwingStorage, state)).toBe(false);
     const full = new MemoryStorage();
     full.setItem = () => {
       throw new Error('QuotaExceededError');
     };
     expect(() => saveGame(full, state)).not.toThrow();
+    expect(saveGame(full, state)).toBe(false);
+    expect(saveGame(new MemoryStorage(), state)).toBe(true);
+  });
+
+  it('stores a save revision next to the state', () => {
+    const storage = new MemoryStorage();
+    const state = newGameState(NOW);
+    expect(storedSaveRev(storage)).toBeNull();
+    expect(loadSave(storage, NOW)).toEqual({ state, rev: 0 });
+    saveGame(storage, state);
+    expect(storedSaveRev(storage)).toBe(0); // saves without a revision (older versions) count as 0
+    expect(saveGame(storage, state, 7)).toBe(true);
+    expect(storedSaveRev(storage)).toBe(7);
+    expect(loadSave(storage, NOW + 1)).toEqual({ state, rev: 7 });
+    expect(loadGame(storage, NOW + 1)).toEqual(state);
+    storage.setItem(SAVE_KEY, '{broken');
+    expect(storedSaveRev(storage)).toBeNull();
+    expect(loadSave(storage, NOW).rev).toBe(0);
+    expect(storedSaveRev(throwingStorage)).toBeNull();
+    expect(storedSaveRev(null)).toBeNull();
   });
 
   it('keeps starting resources separate from saves', () => {

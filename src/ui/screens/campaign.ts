@@ -2,8 +2,8 @@
 import { STAGES_PER_CHAPTER, campaignEnemies, idleRatePerHour, stageFirstClearRewards, stageLabel, stagePower } from '../../core/campaign';
 import { IDLE_CAP_HOURS } from '../../core/constants';
 import type { BattleUnitSetup } from '../../core/types';
-import { button, portrait, powerCompare, progressBar, rewardList, sectionTitle } from '../components';
-import { safely, type Screen, type Ui } from '../context';
+import { button, portrait, powerCompare, progressBar, progressBarWidth, rewardAmountText, rewardList, sectionTitle } from '../components';
+import { blockedBySave, safely, type Screen, type Ui } from '../context';
 import { h, mount } from '../dom';
 import { fightCampaign } from '../flows';
 import { chapterName, fmtDuration, fmtNum, fraction, rewardEntries, rewardSummary } from '../format';
@@ -60,20 +60,48 @@ export function createCampaignScreen(ui: Ui): Screen {
   const el = h('section', { class: 'screen campaign-screen' });
   const timers = new Timers();
   const idleRefs = { timer: h('span'), bar: h('div'), loot: h('div'), chest: h('div') };
+  /** Reward keys of the chips currently shown in idleRefs.loot (null = not rendered yet). */
+  let shownLoot: string | null = null;
 
+  /**
+   * Runs every second: updates the existing nodes in place. Rebuilding them would restart the bar's width
+   * transition and "full" shimmer every tick and drop the chips' hover titles.
+   */
   function updateIdle(): void {
     const { game } = ui;
     const elapsed = Math.max(0, Math.min(CAP_MS, game.now() - game.state.campaign.idleSince));
     const preview = safely(() => game.idlePreview(), { resources: {} });
+    const full = elapsed >= CAP_MS;
     idleRefs.timer.textContent = `${fmtDuration(elapsed)} / ${fmtDuration(CAP_MS)}`;
-    mount(idleRefs.bar, progressBar(fraction(elapsed, CAP_MS), elapsed >= CAP_MS ? 'full' : 'idle'));
-    mount(idleRefs.loot, rewardList(preview, 'Sandık doluyor…'));
-    idleRefs.chest.classList.toggle('has-loot', rewardEntries(preview).length > 0);
-    idleRefs.chest.classList.toggle('full', elapsed >= CAP_MS);
+    const bar = idleRefs.bar.firstElementChild as HTMLElement | null;
+    const fill = bar?.querySelector<HTMLElement>('.pbar-fill');
+    if (bar && fill) {
+      fill.style.width = progressBarWidth(fraction(elapsed, CAP_MS));
+      bar.classList.toggle('full', full);
+      bar.classList.toggle('idle', !full);
+    } else {
+      mount(idleRefs.bar, progressBar(fraction(elapsed, CAP_MS), full ? 'full' : 'idle'));
+    }
+    const rows = rewardEntries(preview);
+    const loot = rows.map((r) => r.key).join('|');
+    const amounts = idleRefs.loot.querySelectorAll<HTMLElement>('.reward-amount');
+    if (loot === shownLoot && amounts.length === rows.length) {
+      rows.forEach((r, i) => {
+        const text = rewardAmountText(r.amount);
+        if (amounts[i].textContent !== text) amounts[i].textContent = text;
+      });
+    } else {
+      shownLoot = loot;
+      mount(idleRefs.loot, rewardList(preview, 'Sandık doluyor…'));
+    }
+    idleRefs.chest.classList.toggle('has-loot', rows.length > 0);
+    idleRefs.chest.classList.toggle('full', full);
   }
 
   function claim(): void {
     const { game } = ui;
+    // A stale tab's claimIdle() collects nothing: say why instead of toasting an empty "Toplandı".
+    if (blockedBySave(ui)) return;
     const preview = safely(() => game.idlePreview(), { resources: {} });
     if (rewardEntries(preview).length === 0) {
       ui.toast('Sandık henüz boş — biraz bekle.', 'info');
@@ -81,6 +109,10 @@ export function createCampaignScreen(ui: Ui): Screen {
     }
     try {
       const got = game.claimIdle();
+      if (rewardEntries(got).length === 0) {
+        ui.toast(game.saveWarning() ?? 'Sandık henüz boş — biraz bekle.', game.saveProblem === 'conflict' ? 'error' : 'info');
+        return;
+      }
       ui.toast(`Toplandı: ${rewardSummary(got)}`, 'reward');
     } catch (err) {
       console.warn('claimIdle failed', err);
@@ -94,6 +126,7 @@ export function createCampaignScreen(ui: Ui): Screen {
     idleRefs.timer = h('span', { class: 'idle-timer' });
     idleRefs.bar = h('div', { class: 'idle-bar' });
     idleRefs.loot = h('div', { class: 'idle-loot' });
+    shownLoot = null;
     idleRefs.chest = h('div', { class: 'idle-chest' }, chest());
     return h(
       'div',
@@ -135,11 +168,12 @@ export function createCampaignScreen(ui: Ui): Screen {
       powerCompare(teamPower, enemyPower),
       sectionTitle('İlk Geçiş Ödülü'),
       rewardList(safely(() => stageFirstClearRewards(stage), null)),
+      // Sticky: the main action stays on screen above the tab bar even when the card is below the fold.
       h(
         'div',
-        { class: 'btn-row' },
+        { class: 'btn-row stage-actions' },
         button('👥 Takım', () => openFormation(ui), { variant: 'secondary' }),
-        button('⚔️ Savaş', () => fightCampaign(ui), { variant: 'primary', class: 'btn-grow btn-fight' }),
+        button('⚔️ Savaş', () => fightCampaign(ui), { variant: 'primary', class: 'btn-grow btn-fight', sub: `Aşama ${stageLabel(stage)}` }),
       ),
     );
   }

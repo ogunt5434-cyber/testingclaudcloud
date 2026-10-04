@@ -43,8 +43,14 @@ function rarityWeights(type: SummonType): [number, number][] {
   return Object.entries(SUMMON_RATES[type]).map(([r, p]) => [Number(r), p]);
 }
 
+/** Hero uid counters stay below this, far from 2^53, so `nextUid++` always changes the value. */
+export const UID_LIMIT = 1_000_000_000;
+
 function nextFreeUid(state: GameState): string {
   const taken = new Set(state.heroes.map((h) => h.uid));
+  // A crafted/corrupt counter (huge, fractional, NaN) restarts at 1; from a sane start the loop below
+  // ends within taken.size + 1 tries because every step moves to a new uid.
+  if (!Number.isSafeInteger(state.nextUid) || state.nextUid < 1 || state.nextUid >= UID_LIMIT) state.nextUid = 1;
   let uid = `h${state.nextUid}`;
   while (taken.has(uid)) {
     state.nextUid++;

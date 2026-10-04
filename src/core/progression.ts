@@ -28,7 +28,7 @@ const DISMISS_BASE: readonly { gold: number; spirit: number }[] = [
 
 export const PLAYER_MAX_LEVEL = 300;
 
-const RESOURCE_KEYS: readonly ResourceKey[] = ['gold', 'spirit', 'gems', 'basicScroll', 'heroicScroll'];
+export const RESOURCE_KEYS: readonly ResourceKey[] = ['gold', 'spirit', 'gems', 'basicScroll', 'heroicScroll'];
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -330,6 +330,44 @@ export function addRewards(state: GameState, rewards: Rewards): void {
     if (n > 0 && isEquipId(id)) addStock(state, id, n);
   }
   grantPlayerExp(state, rewards.playerExp ?? 0);
+}
+
+/** a + b as a new Rewards (keys present in either input are kept, even when 0). */
+export function mergeRewards(a: Rewards, b: Rewards): Rewards {
+  const resources: Partial<Resources> = {};
+  for (const key of RESOURCE_KEYS) {
+    if (a.resources[key] !== undefined || b.resources[key] !== undefined) {
+      resources[key] = (a.resources[key] ?? 0) + (b.resources[key] ?? 0);
+    }
+  }
+  const merged: Rewards = { resources };
+  if (a.playerExp !== undefined || b.playerExp !== undefined) merged.playerExp = (a.playerExp ?? 0) + (b.playerExp ?? 0);
+  if (a.equipment || b.equipment) {
+    const equipment: Record<string, number> = { ...a.equipment };
+    for (const [id, n] of Object.entries(b.equipment ?? {})) equipment[id] = (equipment[id] ?? 0) + n;
+    merged.equipment = equipment;
+  }
+  return merged;
+}
+
+/** Rewards with every zero/invalid amount dropped (resources stays an object; playerExp/equipment only when > 0). */
+export function compactRewards(rewards: Rewards): Rewards {
+  const whole = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0);
+  const resources: Partial<Resources> = {};
+  for (const key of RESOURCE_KEYS) {
+    const n = whole(rewards.resources?.[key]);
+    if (n > 0) resources[key] = n;
+  }
+  const out: Rewards = { resources };
+  const exp = whole(rewards.playerExp);
+  if (exp > 0) out.playerExp = exp;
+  const equipment: Record<string, number> = {};
+  for (const [id, count] of Object.entries(rewards.equipment ?? {})) {
+    const n = whole(count);
+    if (n > 0 && isEquipId(id)) equipment[id] = n;
+  }
+  if (Object.keys(equipment).length > 0) out.equipment = equipment;
+  return out;
 }
 
 export function canAfford(state: GameState, cost: Partial<Resources>): boolean {

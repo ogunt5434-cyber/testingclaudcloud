@@ -7,6 +7,7 @@ import { button, portrait, rewardList, sectionTitle, starRow } from '../componen
 import type { Ui } from '../context';
 import { h, mount } from '../dom';
 import { fmtNum } from '../format';
+import { levelUpText } from '../hints';
 import { openModal, type ModalHandle } from '../overlay';
 
 export interface ResultOptions {
@@ -14,8 +15,15 @@ export interface ResultOptions {
   title: string;
   model: BattleModel;
   next?: { label: string; run: () => void };
+  /** Account level-up caused by this fight (its gems are not part of `outcome.rewards`). */
+  levelUp?: { from: number; to: number } | null;
   /** Closes the battle view behind the result. */
   onDone: () => void;
+}
+
+function levelUpBanner(levelUp: { from: number; to: number }): HTMLElement | null {
+  const text = levelUpText(levelUp.from, levelUp.to);
+  return text ? h('div', { class: 'result-levelup' }, h('span', { class: 'rl-icon', attrs: { 'aria-hidden': 'true' } }, '⬆️'), text) : null;
 }
 
 function meterRow(stats: UnitBattleStats, model: BattleModel, maxValue: number, mvp: boolean): HTMLElement | null {
@@ -94,12 +102,22 @@ function lossTips(ui: Ui, close: () => void): HTMLElement {
 export function openResult(ui: Ui, opts: ResultOptions): ModalHandle {
   const { outcome } = opts;
   const won = outcome.result.winner === 'attacker';
-  const done = (): void => {
+  // Every button leaves the result screen: only the first tap counts (a double tap must not start two fights).
+  let acted = false;
+  const once =
+    (fn: () => void) =>
+    (): void => {
+      if (acted) return;
+      acted = true;
+      fn();
+    };
+  const close = (): void => {
     modal.close();
     opts.onDone();
   };
+  const done = once(close);
 
-  const modal = openModal({ className: ['result-panel', won ? 'won' : 'lost'].join(' '), dismissible: false });
+  const modal = openModal({ className: ['result-panel', won ? 'won' : 'lost'].join(' '), dismissible: false, label: won ? 'Zafer' : 'Yenilgi' });
   modal.setContent(
     h(
       'div',
@@ -109,16 +127,20 @@ export function openResult(ui: Ui, opts: ResultOptions): ModalHandle {
       h('div', { class: 'result-title' }, won ? 'ZAFER' : 'YENİLGİ'),
       h('div', { class: 'result-sub' }, `${opts.title} · ${outcome.result.rounds} tur`),
     ),
+    opts.levelUp ? levelUpBanner(opts.levelUp) : null,
     won ? h('div', { class: 'result-rewards' }, sectionTitle('Ödüller'), rewardList(outcome.rewards, 'Bu savaştan ödül yok')) : lossTips(ui, done),
     damageMeter(outcome, opts.model),
   );
   mount(
     modal.footer,
     opts.next
-      ? button(opts.next.label, () => {
-          done();
-          opts.next?.run();
-        })
+      ? button(
+          opts.next.label,
+          once(() => {
+            close();
+            opts.next?.run();
+          }),
+        )
       : null,
     button('Devam', done, { variant: 'primary' }),
   );

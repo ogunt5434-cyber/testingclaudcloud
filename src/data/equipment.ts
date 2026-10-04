@@ -1,6 +1,8 @@
 // Equipment catalogue: 4 slots × 6 tiers = 24 items with flat stat bonuses.
 // Tier-1 values follow the SPEC; primary stats grow ~×1.8 per tier. Boots speed grows more
-// gently (~×1.5) so late-game turn order is not dominated by gear.
+// gently (~×1.5) so late-game turn order is not dominated by gear. Armor, helmet and boots all add
+// hp, so the top weapons grow a little faster (atk ~×1.9, crit up to 10%) to keep endgame gear from
+// only prolonging fights.
 import { EQUIP_SLOTS } from '../core/types';
 import type { EquipDef, EquipSlot, Stats } from '../core/types';
 
@@ -40,8 +42,8 @@ const ITEM_STATS: Record<EquipSlot, readonly Partial<Stats>[]> = {
     { atk: 36 },
     { atk: 65 },
     { atk: 117, crit: 0.02 },
-    { atk: 210, crit: 0.04 },
-    { atk: 380, crit: 0.06 },
+    { atk: 230, crit: 0.06 },
+    { atk: 430, crit: 0.1 },
   ],
   armor: [
     { hp: 200, armor: 8 },

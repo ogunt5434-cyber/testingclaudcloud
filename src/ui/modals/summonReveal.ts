@@ -5,7 +5,7 @@ import { getHeroDef } from '../../data/heroes';
 import { button, costView, portrait, starRow } from '../components';
 import type { Ui } from '../context';
 import { h, mount, prefersReducedMotion } from '../dom';
-import { rarityColor } from '../format';
+import { hyphenateTr, rarityColor } from '../format';
 import { openModal } from '../overlay';
 import { Timers } from '../timers';
 import { openHeroDetail } from './heroDetail';
@@ -42,7 +42,7 @@ function revealCard(hero: HeroInstance, isNew: boolean, big: boolean): HTMLEleme
         h('div', { class: 'scard-halo', attrs: { 'aria-hidden': 'true' } }),
         portrait(hero.heroId, big ? 'xl' : 'sm'),
         starRow(hero.stars, 'scard-stars'),
-        h('span', { class: 'scard-name' }, def.name),
+        h('span', { class: 'scard-name' }, big ? def.name : hyphenateTr(def.name)),
         big ? h('span', { class: 'scard-title' }, `${FACTION_INFO[def.faction].icon} ${def.title} · ${CLASS_INFO[def.heroClass].name}`) : null,
         isNew ? h('span', { class: 'scard-new' }, 'YENİ') : null,
       ),
@@ -63,8 +63,13 @@ export function openSummonReveal(ui: Ui, opts: RevealOptions): void {
   });
   let revealed = 0;
 
-  const modal = openModal({ title: 'Çağrı Sonuçları', className: 'reveal-panel', onClose: () => timers.clear() });
-  const grid = h('div', { class: ['reveal-grid', single && 'single'], onClick: revealAll }, cards);
+  // The pull is already paid for: the reveal cannot be dismissed until every card is face up. Until then
+  // any tap (backdrop, panel, hint, grid) flips the remaining cards.
+  const modal = openModal({ title: 'Çağrı Sonuçları', className: 'reveal-panel', dismissible: false, onClose: () => timers.clear() });
+  modal.root.addEventListener('click', () => {
+    if (revealed < cards.length) revealAll();
+  });
+  const grid = h('div', { class: ['reveal-grid', single && 'single'] }, cards);
   const flash = h('div', { class: ['reveal-flash', hasLegend && 'legendary'], attrs: { 'aria-hidden': 'true' } });
   modal.setContent(h('div', { class: 'reveal-stage' }, flash, grid), h('p', { class: 'hint reveal-hint' }, 'Hepsini açmak için dokun'));
 
@@ -91,6 +96,7 @@ export function openSummonReveal(ui: Ui, opts: RevealOptions): void {
 
   function finished(): void {
     modal.body.querySelector('.reveal-hint')?.remove();
+    modal.setDismissible(true);
     renderFooter(true);
   }
 

@@ -3,12 +3,14 @@
 import { FRONT_ROW } from '../../core/constants';
 import { getHeroDef } from '../../data/heroes';
 import { button, emptyState, heroCard, portrait, starRow } from '../components';
-import { runAction, safely, type Ui } from '../context';
+import { blockedBySave, runAction, safely, type Ui } from '../context';
 import { h, mount } from '../dom';
 import { fmtNum, POWER_ICON } from '../format';
 import { openModal } from '../overlay';
 
-const SLOT_LABELS = ['Ön 1', 'Ön 2', 'Arka 1', 'Arka 2', 'Arka 3', 'Arka 4'];
+export const SLOT_LABELS = ['Ön 1', 'Ön 2', 'Arka 1', 'Arka 2', 'Arka 3', 'Arka 4'];
+/** Short slot names for the hero card badges; they must match SLOT_LABELS ("Arka 1" -> "A1"). */
+export const SLOT_BADGES = ['Ö1', 'Ö2', 'A1', 'A2', 'A3', 'A4'];
 
 /** Warriors prefer the front row, everyone else the back row. */
 function preferredEmptySlot(draft: (string | null)[], heroClass: string): number {
@@ -113,7 +115,7 @@ export function openFormation(ui: Ui): void {
               return heroCard(hero, {
                 power: safely(() => game.heroPower(hero.uid), 0),
                 inFormation: slot >= 0,
-                badge: slot >= 0 ? String(slot + 1) : undefined,
+                badge: slot >= 0 ? SLOT_BADGES[slot] : undefined,
                 onClick: () => tapHero(hero.uid),
               });
             }),
@@ -124,6 +126,7 @@ export function openFormation(ui: Ui): void {
   mount(
     modal.footer,
     button('🪄 Otomatik', () => {
+      if (blockedBySave(ui)) return;
       try {
         game.autoFormation();
         selected = null;

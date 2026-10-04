@@ -211,6 +211,13 @@ export interface GameState {
     cleared: number;
     /** Timestamp idle rewards are accumulating from. */
     idleSince: number;
+    /**
+     * Idle income earned in [idleSince, until] at an earlier (lower) stage's rate, banked when a stage
+     * was cleared and paid out with the next claim. Absent when nothing is banked.
+     */
+    idleBank?: { until: number; rewards: Rewards };
+    /** Clock high-water mark: idle time up to here was already paid out or banked. Never decreases. */
+    idlePaidUntil?: number;
   };
   tower: { cleared: number };
   summon: {
@@ -276,6 +283,8 @@ export type BattleEvent =
   | { t: 'energy'; target: UnitRef; energyAfter: number }
   | { t: 'status'; target: UnitRef; status: StatusKind; on: boolean; duration: number }
   | { t: 'buff'; target: UnitRef; stat: StatKey; amount: number; duration: number }
+  /** A buff (same target/stat/amount as an earlier `buff` event) expired at round end or was cleared by death. */
+  | { t: 'buffEnd'; target: UnitRef; stat: StatKey; amount: number }
   | { t: 'passive'; actor: UnitRef; name: string }
   | { t: 'skip'; actor: UnitRef; reason: ControlStatus }
   | { t: 'death'; target: UnitRef }

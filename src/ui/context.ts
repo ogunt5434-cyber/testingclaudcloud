@@ -21,6 +21,11 @@ export interface Ui {
   onChange(fn: () => void): () => void;
   /** Re-renders everything (for changes that do not go through a Game action). */
   notify(): void;
+  /**
+   * Runs `fn` without the automatic account level-up toast (fights announce the level-up on their
+   * result screen instead of spoiling the battle). Returns fn's value.
+   */
+  withoutLevelUpToast<T>(fn: () => T): T;
 }
 
 /**
@@ -46,6 +51,16 @@ export function runAction<T>(
   }
   if (success) ui.toast(typeof success === 'string' ? success : success(result.value), 'success');
   return { value: result.value };
+}
+
+/**
+ * For actions that cannot report an error themselves (claimIdle, autoFormation, toggleLock do nothing in a
+ * stale tab): true, after toasting the warning, when another tab saved newer progress.
+ */
+export function blockedBySave(ui: Ui): boolean {
+  if (safely(() => ui.game.refreshSaveStatus(), null) !== 'conflict') return false;
+  ui.toast(ui.game.saveWarning() ?? 'Kayıt yapılamıyor.', 'error');
+  return true;
 }
 
 /** Calls a query that may throw (e.g. a hero that was just removed) and falls back to `fallback`. */

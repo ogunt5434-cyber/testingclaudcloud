@@ -86,6 +86,8 @@ export class BattleModel {
         });
       case 'buff':
         return this.addBuff(ev.target, ev.stat, ev.amount, ev.duration);
+      case 'buffEnd':
+        return this.endBuff(ev.target, ev.stat, ev.amount);
       case 'death':
         this.pending.delete(refKey(ev.target));
         return this.update(ev.target, (u) => {
@@ -120,6 +122,20 @@ export class BattleModel {
       unit.buffs = unit.buffs.filter((b) => b.lastRound >= round);
       if (unit.alive) this.pending.add(unit.key);
     }
+  }
+
+  /**
+   * The engine announces each expiry with `buffEnd`: drop the matching buff that was due first.
+   * (The lastRound bookkeeping stays as a fallback; it never expires a buff earlier than the engine.)
+   */
+  private endBuff(ref: UnitRef, stat: StatKey, amount: number): void {
+    this.update(ref, (u) => {
+      let index = -1;
+      u.buffs.forEach((b, i) => {
+        if (b.stat === stat && b.amount === amount && (index < 0 || b.lastRound < u.buffs[index].lastRound)) index = i;
+      });
+      if (index >= 0) u.buffs.splice(index, 1);
+    });
   }
 
   /** Mirrors the engine: a buff from a turn lasts through round r+N-1, one from round end through r+N. */

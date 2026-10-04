@@ -32,6 +32,48 @@ const HEAL_ALL: SkillDef = {
   effects: [{ type: 'heal', target: { selector: 'allAllies' }, multiplier: 10 }],
 };
 
+const burnAll = (duration: number, value: number): SkillEffect => ({
+  type: 'status',
+  target: { selector: 'allEnemies' },
+  status: 'burn',
+  chance: 1,
+  duration,
+  value,
+});
+const spdBuff = (selector: 'self' | 'allAllies' | 'allEnemies', amount: number, duration: number): SkillEffect => ({
+  type: 'buff',
+  target: { selector },
+  stat: 'spd',
+  amount,
+  duration,
+});
+
+/** Heroes that change spd from every phase (skill, onAttack, onHit, roundEnd, battleStart, onAllyDeath). */
+const SPD_FIXTURES = [
+  fixtureHero('test_spd_caster', {
+    active: {
+      name: 'Rüzgâr Darbesi',
+      description: '-',
+      effects: [{ type: 'damage', target: { selector: 'defaultEnemy' }, multiplier: 1.5 }, spdBuff('self', 60, 1)],
+    },
+  }),
+  fixtureHero('test_spd_slower', {
+    passives: [passive('Ağır Hava', { trigger: 'onAttack', effects: [spdBuff('allEnemies', -40, 2)] })],
+  }),
+  fixtureHero('test_spd_rally', {
+    passives: [passive('Toparlan', { trigger: 'roundEnd', chance: 0.5, effects: [spdBuff('self', 35, 1)] })],
+  }),
+  fixtureHero('test_spd_flinch', {
+    passives: [passive('İrkilme', { trigger: 'onHit', effects: [spdBuff('self', 20, 1)] })],
+  }),
+  fixtureHero('test_spd_mourn', {
+    passives: [
+      passive('Hazırlık', { trigger: 'battleStart', effects: [spdBuff('allAllies', 10, 2)] }),
+      passive('Yas Hızı', { trigger: 'onAllyDeath', effects: [spdBuff('allAllies', 70, 1)] }),
+    ],
+  }),
+];
+
 const FIXTURES = [
   fixtureHero('test_dummy'),
   fixtureHero('test_brute', { active: STRIKE }),
@@ -95,6 +137,33 @@ const FIXTURES = [
   }),
   fixtureHero('test_abyss', { faction: 'abyss' }),
   fixtureHero('test_forest', { faction: 'forest' }),
+  // Round-end DoT reapplication.
+  fixtureHero('test_reburn', {
+    passives: [passive('Süren Kor', { trigger: 'roundEnd', effects: [burnAll(1, 0.1)] })],
+  }),
+  fixtureHero('test_plainburner', {
+    passives: [passive('İlk Kor', { trigger: 'battleStart', effects: [burnAll(2, 0.1)] })],
+  }),
+  fixtureHero('test_avenger', {
+    passives: [
+      passive('İlk Kor', { trigger: 'battleStart', effects: [burnAll(2, 0.1)] }),
+      passive('İntikam Koru', { trigger: 'onAllyDeath', effects: [burnAll(3, 0.1)] }),
+    ],
+  }),
+  fixtureHero('test_killburner', {
+    passives: [passive('Ölümcül Kor', { trigger: 'battleStart', effects: [burnAll(1, 100)] })],
+  }),
+  fixtureHero('test_finisher', {
+    passives: [passive('Son Söz', { trigger: 'roundEnd', effects: [{ type: 'damage', target: { selector: 'allEnemies' }, multiplier: 100 }] })],
+  }),
+  fixtureHero('test_faintburner', {
+    passives: [passive('Kıvılcım', { trigger: 'battleStart', effects: [burnAll(1, 0.01)] })],
+  }),
+  // Buff expiry (buffEnd) timing.
+  fixtureHero('test_selfspd', {
+    active: { name: 'Hızlan', description: 'Kendine 1 tur +100 hız.', effects: [selfBuff('spd', 100)] },
+  }),
+  ...SPD_FIXTURES,
 ];
 
 let unregister: () => void = () => {};
@@ -134,6 +203,12 @@ function turnsOf(result: BattleResult, ref: UnitRef): string[] {
 function roundOfEvents(events: BattleEvent[]): number[] {
   let round = 0;
   return events.map((e) => (e.t === 'roundStart' ? (round = e.round) : round));
+}
+
+/** Round of each DoT tick on `target`, in order. */
+function dotTickRounds(result: BattleResult, target: UnitRef): number[] {
+  const rounds = roundOfEvents(result.events);
+  return result.events.flatMap((e, i) => (e.t === 'damage' && e.kind === 'dot' && is(e.target, target) ? [rounds[i]] : []));
 }
 
 /** Rng returning a constant: 0.5 makes the damage variance factor exactly 1. */
@@ -267,6 +342,51 @@ describe('simulateBattle: statuses', () => {
       const burnerStats = result.unitStats.find((s) => is(s.ref, A0))!;
       expect(burnerStats.damageDealt).toBeGreaterThanOrEqual(atk);
     }
+  });
+});
+
+describe('simulateBattle: DoT reapplied during round end', () => {
+  it('a 1-round DoT reapplied by a roundEnd passive ticks every round (equal duration is not lost)', () => {
+    const result = run(duel(unitSetup('test_reburn', { hp: 1e7, atk: 1 }), unitSetup('test_dummy', { hp: 1e7, atk: 1 }), 1, 6));
+    // First applied at the end of round 1 (starts next round), then refreshed at every round end.
+    expect(dotTickRounds(result, D0)).toEqual([2, 3, 4, 5, 6]);
+    const burnEvents = result.events.filter((e) => e.t === 'status' && e.status === 'burn' && is(e.target, D0));
+    expect(burnEvents.filter((e) => e.t === 'status' && !e.on)).toEqual([]);
+  });
+
+  it('refreshing an existing DoT during round end (before its tick) keeps this round\'s tick and extends it', () => {
+    const setup = (burnerId: string): BattleSetup => ({
+      attackers: team({
+        0: unitSetup(burnerId, { hp: 1e7, atk: 10, spd: 100 }),
+        1: unitSetup('test_dummy', { hp: 50, atk: 1, spd: 200 }), // dies to the defender's burn first at round 1 end
+      }),
+      defenders: team({ 0: unitSetup('test_killburner', { hp: 1e7, atk: 1, spd: 150 }) }),
+      seed: 3,
+      maxRounds: 5,
+    });
+    const plain = run(setup('test_plainburner'));
+    expect(dotTickRounds(plain, D0)).toEqual([1, 2]);
+
+    const avenged = run(setup('test_avenger'));
+    const rounds = roundOfEvents(avenged.events);
+    const death = avenged.events.findIndex((e) => e.t === 'death' && is(e.target, A1));
+    const reapply = avenged.events.findIndex((e, i) => i > death && e.t === 'status' && e.status === 'burn' && e.on);
+    const d0Tick = avenged.events.findIndex((e) => e.t === 'damage' && e.kind === 'dot' && is(e.target, D0));
+    expect(rounds[death]).toBe(1);
+    expect(reapply).toBeLessThan(d0Tick); // refreshed before D0's own round-1 tick
+    // The battleStart burn still ticks in round 1, then 3 more rounds from the onAllyDeath refresh.
+    expect(dotTickRounds(avenged, D0)).toEqual([1, 2, 3, 4]);
+  });
+
+  it('a battle ended by a roundEnd passive emits nothing after battleEnd (no duration decrement)', () => {
+    const setup = duel(unitSetup('test_finisher', { hp: 1e6, atk: 100, spd: 50 }), unitSetup('test_faintburner', { hp: 5000, atk: 1, spd: 100 }), 1, 3);
+    const result = run(setup);
+    expect(result.rounds).toBe(1);
+    expect(result.events.slice(-3)).toEqual([
+      expect.objectContaining({ t: 'damage', kind: 'passive', target: D0, hpAfter: 0 }),
+      { t: 'death', target: D0 },
+      { t: 'battleEnd', winner: 'attacker' },
+    ]);
   });
 });
 
@@ -485,6 +605,102 @@ describe('passives', () => {
       return e && (e.t === 'action' || e.t === 'skip') ? e.actor.side : null;
     });
     expect(firstActorPerRound).toEqual(['defender', 'attacker', 'attacker', 'attacker']);
+  });
+});
+
+describe('buff expiry (buffEnd events)', () => {
+  it('a buff cast by the last actor of a round ends at that round end, before the next turn order is fixed', () => {
+    const result = run(duel(unitSetup('test_selfspd', { hp: 1e7, atk: 1, spd: 50 }), unitSetup('test_dummy', { hp: 1e7, atk: 1, spd: 100 }), 1, 4));
+    const ev = result.events;
+    const rounds = roundOfEvents(ev);
+    const buffIdx = ev.findIndex((e) => e.t === 'buff' && is(e.target, A0));
+    const round = rounds[buffIdx];
+    const turns = ev.filter((e, i) => rounds[i] === round && (e.t === 'action' || e.t === 'skip'));
+    expect(turns[turns.length - 1]).toMatchObject({ t: 'action', actor: A0, kind: 'skill' });
+    const endIdx = ev.findIndex((e) => e.t === 'buffEnd' && is(e.target, A0));
+    expect(ev[endIdx]).toEqual({ t: 'buffEnd', target: A0, stat: 'spd', amount: 100 });
+    expect(rounds[endIdx]).toBe(round);
+    expect(endIdx).toBeGreaterThan(buffIdx);
+    // The engine dropped the buff: the slower attacker acts after the defender next round.
+    const nextFirst = ev.find((e, i) => rounds[i] === round + 1 && (e.t === 'action' || e.t === 'skip'));
+    expect(nextFirst).toMatchObject({ actor: D0 });
+  });
+
+  it('battleStart buffs end at round N end; round-end buffs one round later; death ends all buffs', () => {
+    const hastened = run(duel(unitSetup('test_hastener', { spd: 50 }), unitSetup('test_dummy', { hp: 1e7, atk: 1 }), 1, 3));
+    const r1 = roundOfEvents(hastened.events);
+    const spdEndRounds = (result: BattleResult, rounds: number[]) =>
+      result.events.flatMap((e, i) => (e.t === 'buffEnd' && e.stat === 'spd' && is(e.target, A0) ? [rounds[i]] : []));
+    expect(spdEndRounds(hastened, r1)).toEqual([1]);
+
+    const rally = run(duel(unitSetup('test_rally', { spd: 50 }), unitSetup('test_dummy', { hp: 1e7, atk: 1 }), 1, 4));
+    const r2 = roundOfEvents(rally.events);
+    // Applied at the end of rounds 1..4 (duration 1) -> each expires one round end later (the last one never does).
+    expect(spdEndRounds(rally, r2)).toEqual([2, 3, 4]);
+
+    // A0 (front, the only defaultEnemy) holds two battleStart +10 spd buffs when the brute kills it in round 1.
+    const setup: BattleSetup = {
+      attackers: team({ 0: unitSetup('test_spd_mourn', { hp: 300, atk: 1, spd: 50 }), 2: unitSetup('test_spd_mourn', { hp: 1e7, atk: 1 }) }),
+      defenders: team({ 0: unitSetup('test_brute', { hp: 1e7, atk: 400 }) }),
+      seed: 2,
+      maxRounds: 2,
+    };
+    const result = run(setup); // checkInvariants: no buff stays active on a dead unit
+    const death = result.events.findIndex((e) => e.t === 'death' && is(e.target, A0));
+    expect(roundOfEvents(result.events)[death]).toBe(1);
+    expect(result.events.slice(death + 1, death + 3)).toEqual([
+      { t: 'buffEnd', target: A0, stat: 'spd', amount: 10 },
+      { t: 'buffEnd', target: A0, stat: 'spd', amount: 10 },
+    ]);
+    expect(result.events.slice(death + 3).some((e) => 'target' in e && is(e.target, A0))).toBe(false);
+  });
+
+  it('turn order each round matches the spd buffs announced by buff / buffEnd events', () => {
+    const rng = new Rng(4242);
+    const ids = SPD_FIXTURES.map((h) => h.id);
+    let checkedRounds = 0;
+    let buffEnds = 0;
+    for (let c = 0; c < 40; c++) {
+      const side = () =>
+        team(Object.fromEntries([0, 1, 2].map((pos) => [pos, unitSetup(rng.pick(ids), { hp: rng.int(800, 4000), atk: 100, spd: rng.int(60, 140) })])));
+      const setup: BattleSetup = { attackers: side(), defenders: side(), seed: c, maxRounds: 8 };
+      const result = run(setup);
+      const key = (r: UnitRef) => `${r.side}:${r.pos}`;
+      const baseSpd = new Map<string, number>();
+      for (const s of ['attacker', 'defender'] as const) {
+        (s === 'attacker' ? setup.attackers : setup.defenders).forEach((u, pos) => u && baseSpd.set(`${s}:${pos}`, u.stats.spd));
+      }
+      const buffs = new Map<string, number[]>([...baseSpd.keys()].map((k) => [k, []]));
+      const dead = new Set<string>();
+      let predicted: string[] = [];
+      let actual: string[] = [];
+      const compare = () => {
+        const remaining = predicted.filter((k) => actual.includes(k));
+        expect(actual, `case ${c}`).toEqual(remaining);
+        checkedRounds++;
+      };
+      for (const e of result.events) {
+        if (e.t === 'roundStart') {
+          if (e.round > 1) compare();
+          const effSpd = (k: string) => Math.max(0, baseSpd.get(k)! + buffs.get(k)!.reduce((a, b) => a + b, 0));
+          predicted = [...baseSpd.keys()]
+            .filter((k) => !dead.has(k))
+            .sort((a, b) => effSpd(b) - effSpd(a) || (a < b ? -1 : a > b ? 1 : 0));
+          actual = [];
+        } else if (e.t === 'action' || e.t === 'skip') actual.push(key(e.actor));
+        else if (e.t === 'death') dead.add(key(e.target));
+        else if (e.t === 'buff' && e.stat === 'spd') buffs.get(key(e.target))!.push(e.amount);
+        else if (e.t === 'buffEnd' && e.stat === 'spd') {
+          const list = buffs.get(key(e.target))!;
+          expect(list).toContain(e.amount);
+          list.splice(list.indexOf(e.amount), 1);
+          buffEnds++;
+        }
+      }
+      if (result.rounds > 0) compare();
+    }
+    expect(checkedRounds).toBeGreaterThan(150);
+    expect(buffEnds).toBeGreaterThan(100);
   });
 });
 

@@ -1,10 +1,11 @@
 // Campaign stages & idle rewards (SPEC §5).
 // Difficulty is a smooth "strength" curve (see enemies.ts); rewards scale with the stage.
-// Idle rewards are deterministic expected values: fractional items (scrolls, gear) are counted as
-// floor(rate * t) differences on an absolute time axis, so partial items carry over between claims.
+// Idle rewards are deterministic expected values: every amount (gold, spirit, exp, scrolls, gear) is
+// counted as floor(rate * t) differences on an absolute time axis, so fractions carry over between claims.
+// Clearing a stage banks the chest at the old rate first, so each hour pays at the stage it was spent on.
 import { IDLE_CAP_HOURS, TEAM_SIZE } from './constants';
 import { buildEnemyTeam } from './enemies';
-import { addRewards } from './progression';
+import { addRewards, compactRewards, mergeRewards } from './progression';
 import { hashSeed } from './rng';
 import { teamPowerOf } from './stats';
 import { EQUIP_SLOTS } from './types';
@@ -157,24 +158,32 @@ export function idleRatePerHour(cleared: number): Rewards {
   };
 }
 
-/** The [from, to] ms window that counts for idle rewards (capped at IDLE_CAP_HOURS). */
+/**
+ * The [from, to] ms window still paying at the current stage's rate. The chest fills for IDLE_CAP_HOURS
+ * after idleSince; time already banked (idleBank) or paid (idlePaidUntil) is skipped.
+ */
 export function idleWindow(state: GameState, now: number): { from: number; to: number } {
-  const from = Math.max(state.campaign.idleSince, now - IDLE_CAP_HOURS * HOUR_MS);
-  return { from: Math.min(from, now), to: now };
+  const { idleSince, idleBank, idlePaidUntil } = state.campaign;
+  let from = Math.max(idleSince, idleBank?.until ?? idleSince);
+  // Clock policy: time up to the high-water mark was paid already, so once the clock is back past the mark
+  // only later time counts (a rewound-then-restored clock can't re-earn it). While the clock is still
+  // behind the mark (it was ahead and got corrected), the restarted chest is trusted instead of freezing.
+  if (idlePaidUntil !== undefined && now >= idlePaidUntil) from = Math.max(from, idlePaidUntil);
+  const to = Math.min(now, idleSince + IDLE_CAP_HOURS * HOUR_MS);
+  return { from: Math.min(from, to), to };
 }
 
 /** Whole items earned in [from, to] at `perHour`, using a fixed time axis so fractions carry over. */
 function itemsBetween(perHour: number, from: number, to: number, phase: number): number {
-  if (!(perHour > 0)) return 0;
+  if (!(perHour > 0) || !(to > from)) return 0;
   const at = (t: number) => Math.floor((perHour * t) / HOUR_MS + phase);
   return Math.max(0, at(to) - at(from));
 }
 
-/** Rewards accumulated between state.campaign.idleSince and now (capped at IDLE_CAP_HOURS). Deterministic. */
-export function computeIdleRewards(state: GameState, now: number): Rewards {
-  const { from, to } = idleWindow(state, now);
-  const hours = (to - from) / HOUR_MS;
-  const rate = idleRatePerHour(state.campaign.cleared);
+/** Income for [from, to] at the rate of `cleared`. Every amount uses the fixed time axis, so the total
+ * doesn't depend on how often the player claims. Gold/spirit/playerExp are always present (maybe 0). */
+function idleIncome(cleared: number, from: number, to: number): Rewards {
+  const rate = idleRatePerHour(cleared);
   const equipment: Record<string, number> = {};
   for (const [id, perHour] of Object.entries(rate.equipment ?? {})) {
     // A stable per-item phase so different slots don't all drop at the same moment.
@@ -182,20 +191,68 @@ export function computeIdleRewards(state: GameState, now: number): Rewards {
     if (n > 0) equipment[id] = n;
   }
   const resources: Partial<Resources> = {
-    gold: Math.floor((rate.resources.gold ?? 0) * hours),
-    spirit: Math.floor((rate.resources.spirit ?? 0) * hours),
+    gold: itemsBetween(rate.resources.gold ?? 0, from, to, 0),
+    spirit: itemsBetween(rate.resources.spirit ?? 0, from, to, 0),
   };
   const scrolls = itemsBetween(rate.resources.basicScroll ?? 0, from, to, 0.5);
   if (scrolls > 0) resources.basicScroll = scrolls;
-  const rewards: Rewards = { resources, playerExp: Math.floor((rate.playerExp ?? 0) * hours) };
+  const rewards: Rewards = { resources, playerExp: itemsBetween(rate.playerExp ?? 0, from, to, 0) };
   if (Object.keys(equipment).length > 0) rewards.equipment = equipment;
   return rewards;
 }
 
-/** Adds computeIdleRewards to state and resets idleSince = now. */
+/**
+ * Everything in the idle chest at `now`: banked income from earlier stages plus income at the current
+ * stage's rate (capped at IDLE_CAP_HOURS after idleSince). Deterministic.
+ */
+export function computeIdleRewards(state: GameState, now: number): Rewards {
+  const { from, to } = idleWindow(state, now);
+  const current = idleIncome(state.campaign.cleared, from, to);
+  const bank = state.campaign.idleBank;
+  return bank ? mergeRewards(bank.rewards, current) : current;
+}
+
+/**
+ * Restarts the chest timers that are ahead of `now` (the device clock was ahead and got corrected), so
+ * the chest fills again from now instead of staying frozen until the old time comes back.
+ * idlePaidUntil is kept, so already-paid time is never paid twice once the clock passes it again.
+ * Returns true if anything changed.
+ */
+export function syncIdleClock(state: GameState, now: number): boolean {
+  if (!Number.isFinite(now)) return false;
+  const campaign = state.campaign;
+  let changed = false;
+  if (campaign.idleSince > now) {
+    campaign.idleSince = now;
+    changed = true;
+  }
+  if (campaign.idleBank && campaign.idleBank.until > now) {
+    campaign.idleBank.until = now;
+    changed = true;
+  }
+  return changed;
+}
+
+function markPaid(state: GameState, now: number): void {
+  state.campaign.idlePaidUntil = Math.max(state.campaign.idlePaidUntil ?? now, now);
+}
+
+/**
+ * Settles the chest at the CURRENT stage's rate (call it before raising `cleared`), so the hours spent at
+ * a stage pay at that stage's rate. The income is kept in the chest (idleBank) and the timer keeps running.
+ */
+export function bankIdleRewards(state: GameState, now: number): void {
+  syncIdleClock(state, now);
+  state.campaign.idleBank = { until: now, rewards: compactRewards(computeIdleRewards(state, now)) };
+  markPaid(state, now);
+}
+
+/** Adds computeIdleRewards to state, empties the bank and restarts the chest at `now`. */
 export function claimIdleRewards(state: GameState, now: number): Rewards {
   const rewards = computeIdleRewards(state, now);
   addRewards(state, rewards);
   state.campaign.idleSince = now;
+  delete state.campaign.idleBank;
+  markPaid(state, now);
   return rewards;
 }

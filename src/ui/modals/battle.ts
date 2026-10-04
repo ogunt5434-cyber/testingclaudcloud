@@ -21,6 +21,8 @@ export interface BattleOptions {
   title: string;
   /** Secondary result button ("Sonraki Aşama" / "Tekrar Dene"); hidden when absent. */
   next?: { winLabel: string; lossLabel: string; run: () => void };
+  /** Account level-up caused by this fight's rewards, announced on the result screen. */
+  levelUp?: { from: number; to: number } | null;
   onClose?: () => void;
 }
 
@@ -52,7 +54,7 @@ export function openBattle(ui: Ui, opts: BattleOptions): void {
   let finished = false;
 
   const roundLabel = h('span', { class: 'bt-round' }, `Tur 0/${MAX_ROUNDS}`);
-  const speedBtn = h('button', { class: 'bt-btn', attrs: { type: 'button', 'aria-label': 'Hız' }, onClick: cycleSpeed });
+  const speedBtn = h('button', { class: 'bt-btn', attrs: { type: 'button' }, onClick: cycleSpeed });
   const skipBtn = h('button', { class: 'bt-btn bt-skip', attrs: { type: 'button' }, onClick: skip }, 'Atla ⏭');
   const header = h('div', { class: 'bt-header' }, roundLabel, h('span', { class: 'bt-title' }, opts.title), h('div', { class: 'bt-controls' }, speedBtn, skipBtn));
 
@@ -63,6 +65,9 @@ export function openBattle(ui: Ui, opts: BattleOptions): void {
 
   function applySpeed(): void {
     speedBtn.textContent = `×${speed}`;
+    // The label must carry the value: an aria-label replaces the visible "×2" for screen readers.
+    speedBtn.setAttribute('aria-label', `Hız ×${speed}`);
+    speedBtn.title = 'Savaş hızı';
     view.setSpeed(speed);
   }
 
@@ -77,6 +82,8 @@ export function openBattle(ui: Ui, opts: BattleOptions): void {
       case 'roundStart':
         roundLabel.textContent = `Tur ${ev.round}/${MAX_ROUNDS}`;
         view.roundBanner(ev.round, MAX_ROUNDS);
+        // The model drops expired buffs at round start: refresh every card, not only the ones that act.
+        view.syncAll();
         return;
       case 'action':
         if (ev.kind === 'skill') {
@@ -107,6 +114,9 @@ export function openBattle(ui: Ui, opts: BattleOptions): void {
       case 'buff':
         view.syncRef(ev.target);
         view.float(ev.target, `${ev.amount >= 0 ? '▲' : '▼'} ${fmtBuff(ev.stat, ev.amount)}`, ev.amount >= 0 ? 'buff' : 'debuff');
+        return;
+      case 'buffEnd':
+        view.syncRef(ev.target);
         return;
       case 'passive':
         view.float(ev.actor, `✦ ${ev.name}`, 'passive');
@@ -149,7 +159,8 @@ export function openBattle(ui: Ui, opts: BattleOptions): void {
   function skip(): void {
     if (finished) return;
     timers.clear();
-    view.el.querySelectorAll('.float, .skill-banner, .round-banner').forEach((el) => el.remove());
+    // Clearing the timers also cancelled the cleanup of in-flight effects (glows, sparks, floats, banners).
+    view.resetEffects();
     while (index < events.length) model.apply(events[index++]);
     roundLabel.textContent = `Tur ${result.rounds}/${MAX_ROUNDS}`;
     view.syncAll();
@@ -170,6 +181,7 @@ export function openBattle(ui: Ui, opts: BattleOptions): void {
       outcome: opts.outcome,
       title: opts.title,
       model,
+      levelUp: opts.levelUp ?? null,
       next: opts.next ? { label: won ? opts.next.winLabel : opts.next.lossLabel, run: opts.next.run } : undefined,
       onDone: () => {
         modal.close();

@@ -10,6 +10,7 @@ import {
   summonCostOptions,
   summonPool,
   type SummonType,
+  UID_LIMIT,
 } from '../src/core/summon';
 import { getHeroDef, HEROES } from '../src/data/heroes';
 import type { GameState } from '../src/core/types';
@@ -96,6 +97,18 @@ describe('createHero', () => {
     state.heroes[0].uid = `h${state.nextUid}`;
     const h = createHero(state, 'ninni');
     expect(state.heroes.filter((x) => x.uid === h.uid)).toHaveLength(1);
+  });
+
+  it('restarts a broken uid counter instead of stalling (counter must keep moving)', () => {
+    const state = newGameState(0);
+    for (const bad of [2 ** 53, 2 ** 53 + 2, 1e300, Number.NaN, Number.POSITIVE_INFINITY, -4, 2.5, UID_LIMIT]) {
+      state.nextUid = bad;
+      createHero(state, 'ninni');
+      expect(Number.isSafeInteger(state.nextUid)).toBe(true);
+      expect(state.nextUid).toBeLessThan(UID_LIMIT);
+      createHero(state, 'ninni');
+    }
+    expect(new Set(state.heroes.map((h) => h.uid)).size).toBe(state.heroes.length);
   });
 
   it('throws on an unknown hero id', () => {

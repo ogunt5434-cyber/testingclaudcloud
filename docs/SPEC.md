@@ -62,7 +62,7 @@ Units know their hero def (faction, skills), level and stars.
      Silence decrements here too.
    - After the action, fire this unit's `onAttack` passives.
 4. **Round end** (only alive units, in turn order): DoTs tick (emit `damage kind:'dot'`, ignores armor/dodge/crit), then
-   `roundEnd` passives, then buffs and DoTs decrement duration (remove at 0; emit `status on:false` for DoTs).
+   `roundEnd` passives, then buffs and DoTs decrement duration (remove at 0; emit `status on:false` for DoTs, `buffEnd` for buffs; a dying unit's buffs also emit `buffEnd`).
 5. After any damage, if one side has no alive units → emit `battleEnd` and stop immediately.
 
 If `maxRounds` ends with both sides alive → **defender wins**.
@@ -125,6 +125,14 @@ It must record `initial`, `events`, `final`, `unitStats` per `BattleResult`.
 - Idle income per hour grows with cleared stage: gold, spirit, player exp; and expected-value drops of
   equipment (tier grows with chapter) & basic scrolls. Cap IDLE_CAP_HOURS. Must be deterministic (use elapsed-time
   based expected values; fractional items may accumulate via floor of totals).
+  - The cap counts from `idleSince` (the last claim): the chest pays for `[idleSince, idleSince + cap]`.
+  - Clearing a stage banks the chest's income so far at the old stage's rate (`campaign.idleBank`); only later
+    time pays the new rate. Totals do not depend on how often the player claims.
+  - Clock safety: a timer ahead of the clock restarts at "now"; `campaign.idlePaidUntil` (never decreases) keeps
+    already-paid time from being paid twice after the clock is set back.
+- Saving: every write stores a save revision. An instance (browser tab) whose stored revision was replaced by
+  another instance stops saving and blocks actions (`saveProblem 'conflict'`); a failed write sets
+  `saveProblem 'unavailable'`. The UI shows a banner for both (reload button for a conflict).
 - Tower: floor F harder than campaign at equal number, first-clear rewards with gems; every 5th floor bonus.
 - Summon rates in `summon.ts`. Heroic: heroicScroll or gems (GEMS_PER_HEROIC_PULL / GEMS_PER_HEROIC_TEN). Basic: basicScroll.
   Light/Dark 5★ heroes have half the weight of other 5★ heroes in the pool.
@@ -137,7 +145,9 @@ Top bar: player level/name, gold, spirit, gems.
 
 - **Kampanya:** current stage label & recommended power vs team power, idle chest showing accumulating rewards
   (live ticking) with "Topla" button, "Savaş" button, "Takım" button opening the formation editor.
-- **Formation editor (modal):** 2 front + 4 back slots; tap a slot then a hero to place; tap to remove; "Otomatik" button.
+- **Formation editor (modal):** 2 front + 4 back slots; tap a slot then a hero to place; tap to remove; "Otomatik" button
+  (6 strongest by power, but warriors beyond the two strongest count with `EXTRA_WARRIOR_WEIGHT` = 80% of their
+  power since only 2 front slots exist; warriors, then the highest hp, take the front row).
 - **Kahramanlar:** grid of hero cards (portrait = faction-colored gradient circle + emoji, stars, level),
   faction filter, sort by power. Tap → detail modal: stats, active & passives text, level up (+1 / +10 / max with
   costs), star up (shows requirement), equipment (4 slots, "En İyisini Kuşan"), lock, dismiss (with confirm).
@@ -148,3 +158,4 @@ Top bar: player level/name, gold, spirit, gems.
   damage numbers, crit styling, heal numbers in green, death fade). Speed ×1/×2/×4 and "Atla" (skip).
   Result modal: Zafer/Yenilgi, rewards, damage meter per unit, "Devam".
 - Toasts for errors/success. No external assets (emoji + CSS only). Must work at 360px width without horizontal scroll.
+  Pinch-zoom must stay available (no `user-scalable=no` / `maximum-scale`); `viewport-fit=cover` + safe-area insets.
