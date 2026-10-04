@@ -26,7 +26,7 @@ export function hasFactionAdvantage(attacker: Faction, defender: Faction): boole
 }
 
 export const FACTION_INFO: Record<Faction, { name: string; color: string; icon: string }> = {
-  shadow: { name: 'Gölge', color: '#8e5bd6', icon: '🌑' },
+  shadow: { name: 'Gölge', color: '#8e5bd6', icon: '🌑️' },
   fortress: { name: 'Kale', color: '#d9a03f', icon: '🏰' },
   abyss: { name: 'Uçurum', color: '#d6453d', icon: '🔥' },
   forest: { name: 'Orman', color: '#4caf50', icon: '🌿' },
