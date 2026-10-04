@@ -53,15 +53,40 @@ Tarayıcı oyun testinden (1280×720 güvenli alan; `docs/screenshots/`):
 
 ## Kurulum ve çalıştırma
 
+### Bilgisayara indirme (Windows, adım adım)
+
+1. **Node.js'i kur:** <https://nodejs.org> adresinden **LTS** sürümünü indir, kurulumda hep "Next" de. (Bir kez yapılır.)
+2. **Kodu indir:** <https://github.com/ogunt5434-cyber/testingclaudcloud/archive/refs/heads/claude/merhaba-gmiryb.zip>
+   bağlantısıyla ZIP'i indir. ZIP'e sağ tıkla → **Tümünü ayıkla…** → hedef olarak **Masaüstü**'nü seç.
+   Çıkan klasörün adını istersen `diyar-kahramanlari` yap.
+   (Git kullanıyorsan: `git clone -b claude/merhaba-gmiryb https://github.com/ogunt5434-cyber/testingclaudcloud.git diyar-kahramanlari`)
+3. **Klasörde terminal aç:** klasörü aç, üstteki adres çubuğuna tıkla, `cmd` yaz ve Enter'a bas.
+4. **Oyunu başlat:** açılan siyah pencereye sırayla yaz:
+   ```bash
+   npm install
+   npm run dev
+   ```
+   Ekranda çıkan `http://localhost:5173` adresini tarayıcıda aç. Kapatmak için siyah pencerede **Ctrl+C**.
+   Sonraki seferlerde sadece 3. adım ve `npm run dev` yeterli.
+
+### Çift tıklayınca açılan tek dosya
+
+`npm run build:single` komutu oyunu tek bir dosyaya paketler: `dist-single/diyar-kahramanlari.html`.
+Bu dosyayı masaüstüne kopyalayıp çift tıklaman yeterli; Node.js gerekmez, internet gerekmez. İlerleme
+tarayıcıda kalır (aynı tarayıcıda aynı dosyayı açtıkça devam eder).
+
+### Tüm komutlar
+
 Node.js 20 veya üstü gerekir.
 
 ```bash
-npm install        # bağımlılıkları kur
-npm run dev        # geliştirme sunucusu (http://localhost:5173)
-npm test           # Vitest ile tüm testler
-npm run typecheck  # yalnızca TypeScript tip denetimi
-npm run build      # tip denetimi + üretim derlemesi (dist/)
-npm run preview    # derlenmiş sürümü yerelde sun
+npm install          # bağımlılıkları kur
+npm run dev          # geliştirme sunucusu (http://localhost:5173)
+npm test             # Vitest ile tüm testler
+npm run typecheck    # yalnızca TypeScript tip denetimi
+npm run build        # tip denetimi + üretim derlemesi (dist/)
+npm run build:single # dist/ çıktısını çift tıklanabilir tek HTML dosyasına paketler (dist-single/)
+npm run preview      # derlenmiş sürümü yerelde sun
 ```
 
 Oyun 1280×720'lik sabit bir sahnede çizilir ve pencereye orantılı olarak sığdırılır. Bütün düğmeler bu güvenli

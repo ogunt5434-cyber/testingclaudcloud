@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:single": "npm run build && node scripts/build-single.mjs"
   },
   "devDependencies": {
     "typescript": "^7.0.2",
