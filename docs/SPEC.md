@@ -14,6 +14,7 @@ fields/signatures; additive changes only if truly needed). Module stubs list the
 | Content | `src/data/heroes.ts`, `src/data/equipment.ts` |
 | Battle engine | `src/core/battle/**` |
 | Meta systems & store | `src/core/stats.ts`, `progression.ts`, `summon.ts`, `campaign.ts`, `tower.ts`, `save.ts`, `game.ts` |
+| Art (generated visuals) | `src/art/**` (facade `src/art/index.ts`) |
 | UI | `src/main.ts`, `src/ui/**`, `src/style.css` |
 | Tests | `tests/*.test.ts` (Vitest) |
 
@@ -138,24 +139,52 @@ It must record `initial`, `events`, `final`, `unitStats` per `BattleResult`.
   Light/Dark 5★ heroes have half the weight of other 5★ heroes in the pool.
 - Player level: exp from idle & battles; level-up gives gems.
 
-## 6. UI (mobile-first, portrait, max-width ~480px centered, dark fantasy theme)
+## 6. UI v2 — Idle-Heroes-style presentation (landscape, cartoon)
 
-Screens via bottom tab bar: **Kampanya** (home), **Kahramanlar**, **Çağır**, **Kule**.
-Top bar: player level/name, gold, spirit, gems.
+The look & layout follow the genre conventions of Idle Heroes (landscape 16:9, illustrated town hub, side-view
+battles with chibi cartoon heroes), but **every asset is original**: no art, characters, logos, names or text
+copied from Idle Heroes or any other game. All art is generated in `src/art/**` (SVG/CSS/canvas). **No emoji
+anywhere in the UI** (they render inconsistently, e.g. 🪙 is a missing glyph on Windows) — use `icon()`.
 
-- **Kampanya:** current stage label & recommended power vs team power, idle chest showing accumulating rewards
-  (live ticking) with "Topla" button, "Savaş" button, "Takım" button opening the formation editor.
-- **Formation editor (modal):** 2 front + 4 back slots; tap a slot then a hero to place; tap to remove; "Otomatik" button
-  (6 strongest by power, but warriors beyond the two strongest count with `EXTRA_WARRIOR_WEIGHT` = 80% of their
-  power since only 2 front slots exist; warriors, then the highest hp, take the front row).
-- **Kahramanlar:** grid of hero cards (portrait = faction-colored gradient circle + emoji, stars, level),
-  faction filter, sort by power. Tap → detail modal: stats, active & passives text, level up (+1 / +10 / max with
-  costs), star up (shows requirement), equipment (4 slots, "En İyisini Kuşan"), lock, dismiss (with confirm).
-- **Çağır:** basic & heroic banners with ×1 and ×10 buttons showing costs; results reveal with star-colored cards.
-- **Kule:** current floor, power, rewards preview, "Savaş" button.
-- **Battle view (full-screen overlay):** both teams in formation (enemy top, player bottom), each unit card with
-  portrait, HP bar, energy bar, status icons. Plays `BattleResult.events` with animations (attacker lunges, floating
-  damage numbers, crit styling, heal numbers in green, death fade). Speed ×1/×2/×4 and "Atla" (skip).
-  Result modal: Zafer/Yenilgi, rewards, damage meter per unit, "Devam".
-- Toasts for errors/success. No external assets (emoji + CSS only). Must work at 360px width without horizontal scroll.
-  Pinch-zoom must stay available (no `user-scalable=no` / `maximum-scale`); `viewport-fit=cover` + safe-area insets.
+**Stage:** fixed design resolution 1280×720, scaled uniformly to fit the viewport (letterboxed with a themed
+backdrop). In a portrait viewport the stage is rotated 90° so it fills the screen when the phone is turned
+sideways (common mobile web-game technique), with a small one-time hint "Daha iyi görüntü için telefonu yan çevir".
+Pinch-zoom stays available; `viewport-fit=cover` + safe-area insets.
+
+**Town hub (home):** full-stage `townScene()` illustration with clickable buildings + ribbon labels:
+Sefer Kapısı (campaign), Çağırma Çemberi (summon), Kadim Kule (tower), Kahramanlar Salonu (heroes); locked
+"Yakında": Arena, Lonca, Pazar. Overlaid HUD: top-left avatar with player level & exp ring + name; top-center
+resource pills (gold, spirit, gems) with "+" buttons; top-right settings; left column round buttons (Takım, Görevler
+placeholder); bottom-left current chapter & stage progress ("Bölüm 3 · 4/10") with the idle chest button (glows when
+rewards are waiting, shows a live counter); bottom-right icon row (Kahramanlar, Çanta/ekipman, Çağır, Takım).
+
+**Campaign screen:** chapter map with stage nodes along a path over a painted backdrop, current stage highlighted;
+panel with enemy lineup portraits, enemy power vs team power, first-clear rewards, idle chest with live ticking
+loot & "Topla", "Savaş" (opens formation confirm → battle).
+
+**Heroes:** IH-style grid of square portrait cards (frame color by stars, faction badge top-left, level bottom-left,
+stars along the bottom), faction filter tabs on the side/top, sorted by power. Hero detail: large full-body sprite on
+the left on a faction-themed pedestal, stats/skills/equipment tabs on the right, level-up / star-up / equip actions.
+
+**Summon (Çağırma Çemberi):** glowing summoning circle scene; Temel & Kahraman banners with ×1/×10 and costs, rates,
+pity counter; reveal: heroes appear from the circle one by one, card flip, 5★ special glow.
+
+**Tower:** vertical tower illustration with floor number, enemy power vs team, rewards, "Savaş".
+
+**Formation:** side-view arrangement, 2 front + 4 back slots like the battle layout, hero bench below, "Otomatik".
+(Otomatik: 6 strongest by power, warriors beyond the two strongest weighted `EXTRA_WARRIOR_WEIGHT`; warriors then
+highest hp in front.)
+
+**Battle (side view):** painted `sceneBackground()`; player team on the LEFT facing right, enemy team on the RIGHT
+facing left; front row (2) nearer the middle, back row (4) behind, staggered vertically like a 2-4 formation on the
+ground. Over each hero: HP bar (green, red for enemies) + thin yellow energy bar, level number + faction icon at the
+bar's left, status icons. Top-center "Tur N/15"; top-right speed button (×1/×2/×4) and "Atla"; bottom corners show
+small portraits of each side? (optional). Events animate with `setSpriteAnim` + `playVfx`: basic attack = melee
+dash-and-strike (warriors/assassins) or projectile (rangers/mages/priests); skills = cast pose + skill-name banner +
+big VFX on targets; floating damage numbers (white with dark outline, crit bigger orange "Kritik!", heal green,
+dodge "Iska"); hit flash & knockback; death = fall + fade. Result: Zafer/Yenilgi banner with rewards, per-unit damage
+meter, "Devam" / "Sonraki Aşama".
+
+Toasts for errors/success. Buttons are chunky, glossy cartoon buttons (gold/orange primary, blue secondary)
+with thick outlines and drop shadows; panels are framed parchment/stone-blue panels with ornate corners, mimicking
+the genre feel with original drawing.
