@@ -1,14 +1,20 @@
-// Modal stack: panels / bottom sheets / full-screen layers, plus a promise-based confirm dialog.
+// Modal stack: framed panels / full-stage panels / bare full-screen layers, plus a promise-based confirm
+// dialog. Every layer lives inside the 1280x720 stage (stage.ts), so it scales and rotates with the game.
 // The stack also guards input: ghost taps right after a modal opens/closes are dropped, focus moves into
 // the top layer (Tab is trapped there) and returns to the opener, and Back closes the top modal.
+import { icon } from '../art';
 import { h, mount, type Child } from './dom';
 import { HistorySync, TapShield, type Point } from './modalGuards';
+import { stageLayer } from './stage';
 
 export interface ModalOptions {
   title?: string;
-  /** Extra classes for the panel (e.g. 'sheet', 'compact'). */
+  /**
+   * Extra classes for the panel: 'compact' (small dialog), 'wide', 'full' (full-stage panel with its own
+   * header), plus screen-specific classes.
+   */
   className?: string;
-  /** Close on backdrop tap, Escape, Back and the ✕ button. Default true. Can change later (setDismissible). */
+  /** Close on backdrop tap, Escape, Back and the close button. Default true. Can change later (setDismissible). */
   dismissible?: boolean;
   /** Full-screen layer without panel chrome (used by the battle view). */
   bare?: boolean;
@@ -26,7 +32,7 @@ export interface ModalHandle {
   readonly footer: HTMLElement;
   setTitle(title: string): void;
   setContent(...children: Child[]): void;
-  /** Allows or forbids closing by backdrop tap, Escape, Back and ✕. */
+  /** Allows or forbids closing by backdrop tap, Escape, Back and the close button. */
   setDismissible(dismissible: boolean): void;
   close(): void;
   readonly closed: boolean;
@@ -39,7 +45,6 @@ interface StackEntry {
 }
 
 const stack: StackEntry[] = [];
-let layerRoot: HTMLElement | null = null;
 let modalSeq = 0;
 const shield = new TapShield();
 /** Position of the click being dispatched right now (null between clicks). */
@@ -63,10 +68,7 @@ function isDismissible(handle: ModalHandle): boolean {
 let listening = false;
 
 function overlayRoot(): HTMLElement {
-  if (!layerRoot || !layerRoot.isConnected) {
-    layerRoot = h('div', { class: 'overlay-root' });
-    document.body.append(layerRoot);
-  }
+  const layerRoot = stageLayer('overlay');
   if (!listening) {
     listening = true;
     document.addEventListener('keydown', onKeyDown);
@@ -189,13 +191,13 @@ export function openModal(opts: ModalOptions, ...children: Child[]): ModalHandle
   };
   const close = (): void => finishClose(false);
 
-  const closeBtn = h('button', { class: 'modal-close', attrs: { 'aria-label': 'Kapat', type: 'button' }, onClick: close }, '✕');
+  const closeBtn = h('button', { class: 'modal-close', attrs: { 'aria-label': 'Kapat', type: 'button' }, onClick: close }, icon('close', 40));
   const panel = opts.bare
     ? h('div', { class: ['modal-bare', opts.className], attrs: { tabindex: -1 } }, body)
     : h(
         'div',
         { class: ['modal-panel', opts.className], attrs: { role: 'dialog', 'aria-modal': 'true', 'aria-label': opts.label, tabindex: -1 } },
-        h('div', { class: 'modal-head' }, titleEl, closeBtn),
+        h('div', { class: 'modal-head' }, h('div', { class: 'modal-title-wrap' }, titleEl), closeBtn),
         body,
         footer,
       );

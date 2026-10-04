@@ -1,63 +1,134 @@
-// Kampanya (home): chapter progress, live-ticking idle chest with "Topla", next stage card with "Savaş".
+// Sefer Kapısı (campaign): chapter map with stage nodes along a trail over the chapter's painted scene,
+// the next stage's panel (enemy lineup, power comparison, first-clear rewards, "Savaş" -> formation confirm)
+// and the live-ticking idle chest with "Topla".
+import { heroSprite, icon } from '../../art';
 import { STAGES_PER_CHAPTER, campaignEnemies, idleRatePerHour, stageFirstClearRewards, stageLabel, stagePower } from '../../core/campaign';
 import { IDLE_CAP_HOURS } from '../../core/constants';
 import type { BattleUnitSetup } from '../../core/types';
-import { button, portrait, powerCompare, progressBar, progressBarWidth, rewardAmountText, rewardList, sectionTitle } from '../components';
-import { blockedBySave, safely, type Screen, type Ui } from '../context';
+import { chapterScene, createBackdrop } from '../backdrop';
+import { button, lineup, powerCompare, progressBar, progressBarWidth, rewardAmountText, rewardList, ribbon, sectionTitle } from '../components';
+import { safely, type Screen, type Ui } from '../context';
 import { h, mount } from '../dom';
-import { fightCampaign } from '../flows';
-import { chapterName, fmtDuration, fmtNum, fraction, rewardEntries, rewardSummary } from '../format';
+import { claimIdle, prepareCampaignFight } from '../flows';
+import { chapterName, fmtDuration, fmtNum, fraction, rewardEntries } from '../format';
 import { openFormation } from '../modals/formation';
 import { Timers } from '../timers';
 
 const HOUR_MS = 3_600_000;
 const CAP_MS = IDLE_CAP_HOURS * HOUR_MS;
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** Stage node positions on the 776x470 map (a trail that snakes right, then back left to the boss). */
+const NODE_POS: readonly [number, number][] = [
+  [70, 392],
+  [200, 350],
+  [330, 396],
+  [462, 350],
+  [592, 392],
+  [706, 270],
+  [600, 182],
+  [468, 222],
+  [336, 176],
+  [176, 214],
+];
 
 function chapterOf(stage: number): number {
   return Math.ceil(stage / STAGES_PER_CHAPTER);
 }
 
-/** CSS-drawn treasure chest. */
-function chest(): HTMLElement {
-  return h(
-    'div',
-    { class: 'chest', attrs: { 'aria-hidden': 'true' } },
-    h('div', { class: 'chest-glow' }),
-    h('div', { class: 'chest-lid' }, h('div', { class: 'chest-band' })),
-    h('div', { class: 'chest-body' }, h('div', { class: 'chest-band' }), h('div', { class: 'chest-lock' })),
-    h('div', { class: 'chest-sparkles' }, h('span', null, '✦'), h('span', null, '✧'), h('span', null, '✦')),
-  );
+/** Smooth trail through the nodes (Catmull-Rom -> cubic Bézier). */
+function trailPath(points: readonly [number, number][]): string {
+  let d = `M${points[0][0]} ${points[0][1]}`;
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[Math.min(points.length - 1, i + 2)];
+    const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
+    const c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
+    d += ` C${c1[0].toFixed(1)} ${c1[1].toFixed(1)} ${c2[0].toFixed(1)} ${c2[1].toFixed(1)} ${p2[0]} ${p2[1]}`;
+  }
+  return d;
 }
 
-function chapterTrack(nextStage: number): HTMLElement {
+function trailSvg(doneUpTo: number): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', 'map-trail');
+  svg.setAttribute('viewBox', '0 0 776 470');
+  svg.setAttribute('aria-hidden', 'true');
+  const all = trailPath(NODE_POS);
+  const done = doneUpTo > 0 ? trailPath(NODE_POS.slice(0, doneUpTo + 1)) : '';
+  const path = (d: string, cls: string): SVGPathElement => {
+    const p = document.createElementNS(SVG_NS, 'path');
+    p.setAttribute('d', d);
+    p.setAttribute('class', cls);
+    return p;
+  };
+  svg.append(path(all, 'trail-edge'), path(all, 'trail-base'), path(all, 'trail-dash'));
+  if (done) svg.append(path(done, 'trail-done'));
+  return svg;
+}
+
+/** The strongest enemy stands guard on the current node. */
+function guardOf(enemies: (BattleUnitSetup | null)[]): BattleUnitSetup | null {
+  let best: BattleUnitSetup | null = null;
+  for (const e of enemies) if (e && (!best || e.stars * 1000 + e.level > best.stars * 1000 + best.level)) best = e;
+  return best;
+}
+
+function chapterMap(nextStage: number, enemies: (BattleUnitSetup | null)[], onFight: () => void): HTMLElement {
   const chapter = chapterOf(nextStage);
   const first = (chapter - 1) * STAGES_PER_CHAPTER + 1;
-  const dots = Array.from({ length: STAGES_PER_CHAPTER }, (_, i) => {
+  const currentIndex = nextStage - first;
+  const nodes = NODE_POS.map(([x, y], i) => {
     const stage = first + i;
-    const boss = (i + 1) % STAGES_PER_CHAPTER === 0;
+    const boss = i === STAGES_PER_CHAPTER - 1;
     const state = stage < nextStage ? 'done' : stage === nextStage ? 'current' : 'locked';
-    return h('span', { class: ['track-dot', state, boss && 'boss'], attrs: { title: stageLabel(stage) } }, boss ? '👑' : '');
+    // Locked nodes show the reward chest waiting there (with a small lock), the boss its trophy.
+    const glyph = state === 'done' ? 'star' : state === 'current' ? 'swords' : boss ? 'trophy' : 'chest';
+    const label = `Aşama ${stageLabel(stage)}${state === 'done' ? ' — geçildi' : state === 'current' ? ' — sıradaki' : ' — kilitli'}`;
+    return h(
+      state === 'current' ? 'button' : 'div',
+      {
+        class: ['map-node', state, boss && 'boss'],
+        style: { left: `${x}px`, top: `${y}px` },
+        attrs: state === 'current' ? { type: 'button', 'aria-label': `${label}: savaş` } : { role: 'img', 'aria-label': label },
+        onClick: state === 'current' ? onFight : undefined,
+      },
+      boss ? h('span', { class: 'node-crown', attrs: { 'aria-hidden': 'true' } }) : null,
+      h('span', { class: 'node-disc' }, icon(glyph, boss ? 48 : 32), state === 'locked' && !boss ? h('span', { class: 'node-lock' }, icon('lock', 18)) : null),
+      h('span', { class: 'node-label' }, stageLabel(stage)),
+    );
   });
+  const guard = guardOf(enemies);
+  const [gx, gy] = NODE_POS[Math.max(0, Math.min(NODE_POS.length - 1, currentIndex))];
+  let guardEl: HTMLElement | null = null;
+  if (guard) {
+    try {
+      guardEl = h('div', { class: 'map-guard', style: { left: `${gx + 50}px`, top: `${gy - 4}px` } }, heroSprite(guard.heroId, { facing: 'left' }));
+    } catch {
+      guardEl = null;
+    }
+  }
   return h(
     'div',
-    { class: 'scene' },
-    h('div', { class: 'scene-sky', attrs: { 'aria-hidden': 'true' } }, h('span', { class: 'scene-moon' }), h('span', { class: 'scene-hills' })),
-    h('div', { class: 'scene-text' }, h('span', { class: 'scene-chapter' }, `Bölüm ${chapter}`), h('h1', { class: 'scene-name' }, chapterName(chapter))),
-    h('div', { class: 'track' }, dots),
-  );
-}
-
-function enemyLineup(enemies: (BattleUnitSetup | null)[]): HTMLElement {
-  const units = enemies.filter((e): e is BattleUnitSetup => e !== null);
-  return h(
-    'div',
-    { class: 'lineup' },
-    units.map((u) => h('div', { class: 'lineup-unit' }, portrait(u.heroId, 'xs'), h('span', { class: 'lineup-lv' }, `Sv.${u.level}`))),
+    { class: 'campaign-map' },
+    trailSvg(Math.max(0, currentIndex)),
+    guardEl,
+    nodes,
+    h(
+      'div',
+      { class: 'map-title' },
+      ribbon(`Bölüm ${chapter}`, 'red', 'map-ribbon'),
+      h('div', { class: 'map-name display-title' }, chapterName(chapter)),
+    ),
   );
 }
 
 export function createCampaignScreen(ui: Ui): Screen {
-  const el = h('section', { class: 'screen campaign-screen' });
+  const backdrop = createBackdrop();
+  const content = h('div', { class: 'screen-content' });
+  const el = h('section', { class: 'screen campaign-screen', attrs: { 'aria-label': 'Sefer Kapısı' } }, backdrop.el, content);
   const timers = new Timers();
   const idleRefs = { timer: h('span'), bar: h('div'), loot: h('div'), chest: h('div') };
   /** Reward keys of the chips currently shown in idleRefs.loot (null = not rendered yet). */
@@ -98,82 +169,60 @@ export function createCampaignScreen(ui: Ui): Screen {
     idleRefs.chest.classList.toggle('full', full);
   }
 
-  function claim(): void {
-    const { game } = ui;
-    // A stale tab's claimIdle() collects nothing: say why instead of toasting an empty "Toplandı".
-    if (blockedBySave(ui)) return;
-    const preview = safely(() => game.idlePreview(), { resources: {} });
-    if (rewardEntries(preview).length === 0) {
-      ui.toast('Sandık henüz boş — biraz bekle.', 'info');
-      return;
-    }
-    try {
-      const got = game.claimIdle();
-      if (rewardEntries(got).length === 0) {
-        ui.toast(game.saveWarning() ?? 'Sandık henüz boş — biraz bekle.', game.saveProblem === 'conflict' ? 'error' : 'info');
-        return;
-      }
-      ui.toast(`Toplandı: ${rewardSummary(got)}`, 'reward');
-    } catch (err) {
-      console.warn('claimIdle failed', err);
-      ui.toast('Ödüller toplanamadı.', 'error');
-    }
-  }
-
   function idleCard(): HTMLElement {
-    const cleared = ui.game.state.campaign.cleared;
-    const rate = safely(() => idleRatePerHour(cleared), { resources: {} });
     idleRefs.timer = h('span', { class: 'idle-timer' });
     idleRefs.bar = h('div', { class: 'idle-bar' });
     idleRefs.loot = h('div', { class: 'idle-loot' });
     shownLoot = null;
-    idleRefs.chest = h('div', { class: 'idle-chest' }, chest());
+    idleRefs.chest = h('div', { class: 'idle-chest', attrs: { 'aria-hidden': 'true' } }, h('span', { class: 'chest-rays' }), icon('chest', 96));
     return h(
       'div',
-      { class: 'card idle-card' },
+      { class: 'panel panel-dark idle-card' },
+      idleRefs.chest,
       h(
         'div',
-        { class: 'idle-top' },
-        idleRefs.chest,
-        h(
-          'div',
-          { class: 'idle-info' },
-          h('div', { class: 'idle-title' }, 'Ganimet Sandığı'),
-          idleRefs.timer,
-          idleRefs.bar,
-          h('div', { class: 'idle-rate' }, 'Saatlik: ', rewardEntries(rate).slice(0, 3).map((r) => h('span', { class: 'rate-item' }, `${r.icon} ${fmtNum(r.amount)}`))),
-        ),
+        { class: 'idle-info' },
+        h('div', { class: 'idle-head' }, h('span', { class: 'idle-title' }, 'Ganimet Sandığı'), idleRefs.timer),
+        idleRefs.bar,
+        idleRefs.loot,
       ),
-      idleRefs.loot,
-      button('Topla', claim, { variant: 'gold', class: 'btn-block' }),
+      button('Topla', () => claimIdle(ui), { variant: 'gold', class: 'idle-claim', icon: 'chest' }),
     );
   }
 
-  function stageCard(): HTMLElement {
+  function stagePanel(stage: number, enemies: (BattleUnitSetup | null)[]): HTMLElement {
     const { game } = ui;
-    const stage = game.state.campaign.cleared + 1;
     const boss = stage % STAGES_PER_CHAPTER === 0;
-    const enemies = safely(() => campaignEnemies(stage), []);
     const enemyPower = safely(() => stagePower(stage), 0);
     const teamPower = safely(() => game.teamPower(), 0);
     return h(
       'div',
-      { class: ['card stage-card', boss && 'boss'] },
+      { class: ['panel side-panel stage-panel', boss && 'boss'] },
       h(
         'div',
-        { class: 'stage-head' },
-        h('div', null, h('div', { class: 'stage-kicker' }, boss ? '👑 Bölüm Sonu' : 'Sıradaki Aşama'), h('div', { class: 'stage-label' }, `Aşama ${stageLabel(stage)}`)),
-        enemyLineup(enemies),
+        { class: 'panel-head' },
+        h('span', { class: 'panel-kicker' }, boss ? 'Bölüm Sonu Muhafızı' : 'Sıradaki Aşama'),
+        h('h2', { class: 'panel-title display-title' }, `Aşama ${stageLabel(stage)}`),
       ),
+      sectionTitle('Düşman Takımı'),
+      lineup(enemies, 54),
       powerCompare(teamPower, enemyPower),
       sectionTitle('İlk Geçiş Ödülü'),
       rewardList(safely(() => stageFirstClearRewards(stage), null)),
-      // Sticky: the main action stays on screen above the tab bar even when the card is below the fold.
+      sectionTitle('Saatlik Ganimet'),
       h(
         'div',
-        { class: 'btn-row stage-actions' },
-        button('👥 Takım', () => openFormation(ui), { variant: 'secondary' }),
-        button('⚔️ Savaş', () => fightCampaign(ui), { variant: 'primary', class: 'btn-grow btn-fight', sub: `Aşama ${stageLabel(stage)}` }),
+        { class: 'rate-row' },
+        rewardEntries(safely(() => idleRatePerHour(game.state.campaign.cleared), { resources: {} }))
+          .slice(0, 4)
+          .map((r) => h('span', { class: 'rate-item', attrs: { title: `${r.name} / saat` } }, icon(r.icon, 26), fmtNum(r.amount))),
+        h('span', { class: 'rate-note' }, '/ saat'),
+      ),
+      h(
+        'div',
+        { class: 'btn-row panel-actions' },
+        button('Takım', () => openFormation(ui), { variant: 'secondary', icon: 'team' }),
+        button('Savaş', () => prepareCampaignFight(ui), { variant: 'primary', class: 'btn-grow btn-fight', icon: 'swords', sub: `Aşama ${stageLabel(stage)}` }),
       ),
     );
   }
@@ -182,7 +231,9 @@ export function createCampaignScreen(ui: Ui): Screen {
     el,
     render(): void {
       const stage = ui.game.state.campaign.cleared + 1;
-      mount(el, chapterTrack(stage), idleCard(), stageCard());
+      backdrop.set(chapterScene(chapterOf(stage)));
+      const enemies = safely(() => campaignEnemies(stage), []);
+      mount(content, chapterMap(stage, enemies, () => prepareCampaignFight(ui)), idleCard(), stagePanel(stage, enemies));
       updateIdle();
     },
     show(): void {

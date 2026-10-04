@@ -1,5 +1,6 @@
-// Entry point: loads the game store and mounts the UI.
+// Entry point: loads the game store and mounts the UI on the 1280x720 stage.
 import './style.css';
+import { icon } from './art';
 import { Game } from './core/game';
 import { mountApp, mountFatal } from './ui/app';
 
@@ -14,13 +15,18 @@ function safeStorage(): Storage | null {
   }
 }
 
-/** Emoji favicon as an inline SVG (no asset files, and no /favicon.ico 404). */
+/** Favicon from the art icon set as an inline SVG (no asset files, and no /favicon.ico 404). */
 function installFavicon(): void {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">⚔️</text></svg>`;
-  const link = document.createElement('link');
-  link.rel = 'icon';
-  link.href = `data:image/svg+xml,${encodeURIComponent(svg)}`;
-  document.head.append(link);
+  try {
+    const svg = icon('swords', 64);
+    svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    const link = document.createElement('link');
+    link.rel = 'icon';
+    link.href = `data:image/svg+xml,${encodeURIComponent(svg.outerHTML)}`;
+    document.head.append(link);
+  } catch {
+    // no favicon
+  }
 }
 
 function boot(): void {

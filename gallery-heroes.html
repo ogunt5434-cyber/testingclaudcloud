@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="data:," />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kahraman Galerisi (geliştirme)</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        background: #17122b;
+        color: #efe8ff;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        padding: 10px 16px;
+        background: rgba(23, 18, 43, 0.94);
+        border-bottom: 1px solid #3a2f63;
+      }
+      header h1 { font-size: 16px; margin: 0 12px 0 0; }
+      header button {
+        font: inherit;
+        font-size: 13px;
+        font-weight: 700;
+        padding: 6px 12px;
+        border-radius: 10px;
+        border: 2px solid #1d1530;
+        background: linear-gradient(#ffd56a, #f0a330);
+        color: #3a2208;
+        cursor: pointer;
+        box-shadow: 0 2px 0 #1d1530;
+      }
+      header button.alt { background: linear-gradient(#8fd0ff, #3a86d8); color: #0c1d3a; }
+      #stage {
+        position: relative;
+        height: 520px;
+        margin: 12px 16px;
+        border-radius: 14px;
+        overflow: hidden;
+        background:
+          radial-gradient(ellipse 70% 55% at 50% 70%, #3f8f88 0%, #2c6a68 45%, transparent 75%),
+          linear-gradient(#152a40 0%, #1f4656 30%, #2a5e62 34%, #2c6660 100%);
+      }
+      #stage .slot { position: absolute; }
+      #grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        gap: 12px;
+        padding: 4px 16px 24px;
+      }
+      .card {
+        display: grid;
+        grid-template-columns: 160px 1fr;
+        gap: 6px;
+        align-items: end;
+        padding: 8px;
+        border-radius: 14px;
+        background: linear-gradient(#2a2250, #211a40);
+        border: 1px solid #3a2f63;
+      }
+      .card .spr { cursor: pointer; }
+      .card .meta { display: grid; gap: 4px; justify-items: start; align-self: stretch; align-content: space-between; }
+      .card .name { font-weight: 800; font-size: 15px; }
+      .card .sub { font-size: 12px; opacity: 0.75; }
+      .card .portrait-frame { border: 3px solid #1d1530; border-radius: 12px; overflow: hidden; line-height: 0; }
+      .r5 .portrait-frame { box-shadow: 0 0 0 2px #ffcf4a; }
+      .r4 .portrait-frame { box-shadow: 0 0 0 2px #c77bff; }
+      .r3 .portrait-frame { box-shadow: 0 0 0 2px #5ab0ff; }
+      .r2 .portrait-frame { box-shadow: 0 0 0 2px #6ad07a; }
+    </style>
+  </head>
+  <body>
+    <script type="module" src="/src/gallery-heroes.ts"></script>
+  </body>
+</html>

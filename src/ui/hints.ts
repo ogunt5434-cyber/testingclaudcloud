@@ -1,8 +1,29 @@
 // Pure cues for the UI (no DOM): star-up readiness markers, account level-up notices and the save banner.
+import { IDLE_CAP_HOURS } from '../core/constants';
 import { SAVE_PROBLEM_TEXT, type SaveProblem } from '../core/game';
 import { findStarUpFodder, playerLevelGems, starUpRequirement } from '../core/progression';
 import type { GameState, HeroInstance } from '../core/types';
+import type { TabId } from './context';
 import { RESOURCE_INFO, fmtNum } from './format';
+
+/** Show the campaign badge once the idle chest has filled this long. */
+export const IDLE_BADGE_MS = 60 * 60 * 1000;
+
+/** Red notification dots for the hub buildings / navigation buttons. */
+export function navBadges(state: Readonly<GameState>, now: number): Partial<Record<TabId, boolean>> {
+  const idleMs = Math.min(IDLE_CAP_HOURS * 3_600_000, now - state.campaign.idleSince);
+  let heroes = false;
+  try {
+    heroes = starUpReadyUids(state).size > 0;
+  } catch {
+    heroes = false;
+  }
+  return {
+    campaign: idleMs >= IDLE_BADGE_MS,
+    heroes,
+    summon: state.resources.basicScroll > 0 || state.resources.heroicScroll > 0,
+  };
+}
 
 /** True when the star-up action would succeed right now (level at cap and enough eligible copies). */
 export function starUpReady(state: Readonly<GameState>, hero: HeroInstance): boolean {
@@ -23,11 +44,11 @@ export function levelUpGems(from: number, to: number): number {
   return gems;
 }
 
-/** "Hesap seviyesi 3! +150 💎", or null when the level did not go up. */
+/** "Hesap seviyesi 3! +150 Yakut", or null when the level did not go up. */
 export function levelUpText(from: number, to: number): string | null {
   if (!(to > from)) return null;
   const gems = levelUpGems(from, to);
-  return `Hesap seviyesi ${to}!${gems > 0 ? ` +${fmtNum(gems)} ${RESOURCE_INFO.gems.icon}` : ''}`;
+  return `Hesap seviyesi ${to}!${gems > 0 ? ` +${fmtNum(gems)} ${RESOURCE_INFO.gems.name}` : ''}`;
 }
 
 /** The banner shown while progress is not being saved. */

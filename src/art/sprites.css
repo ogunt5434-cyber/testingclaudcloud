@@ -1,0 +1,281 @@
+/* Hero sprites & portraits (src/art/characters.ts). Idle loops are CSS; one-shots use the Web Animations API. */
+
+:where(.hs-sprite) {
+  position: relative;
+  display: inline-block;
+  width: 160px;
+  height: 200px;
+  line-height: 0;
+}
+
+.hs-sprite > .hs-svg,
+.hs-portrait > .hs-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.hs-sprite > .hs-svg {
+  overflow: visible;
+}
+
+.hs-svg.hs-flip {
+  transform: scaleX(-1);
+}
+
+/* ------------------------------------------------------------------ idle */
+
+.hs-sprite[data-anim='idle'] .hs-up {
+  animation: hs-breathe 1.5s ease-in-out infinite;
+  animation-delay: var(--hs-phase, 0s);
+}
+
+.hs-sprite[data-anim='idle'] .hs-torso {
+  animation: hs-chest 1.5s ease-in-out infinite;
+  animation-delay: var(--hs-phase, 0s);
+}
+
+.hs-sprite[data-anim='idle'] .hs-head {
+  animation: hs-nod 1.5s ease-in-out infinite;
+  animation-delay: calc(var(--hs-phase, 0s) - 0.25s);
+}
+
+.hs-sprite[data-anim='idle'] .hs-armn {
+  animation: hs-arm-n 1.5s ease-in-out infinite;
+  animation-delay: calc(var(--hs-phase, 0s) - 0.4s);
+}
+
+.hs-sprite[data-anim='idle'] .hs-armf,
+.hs-sprite[data-anim='idle'] .hs-off {
+  animation: hs-arm-f 1.5s ease-in-out infinite;
+  animation-delay: calc(var(--hs-phase, 0s) - 0.3s);
+}
+
+.hs-sprite[data-anim='idle'] .hs-weapon {
+  animation: hs-sway 1.5s ease-in-out infinite;
+  animation-delay: calc(var(--hs-phase, 0s) - 0.7s);
+}
+
+.hs-sprite[data-anim='idle'] .hs-wing {
+  animation: hs-flap 1.3s ease-in-out infinite;
+  animation-delay: var(--hs-phase, 0s);
+}
+
+.hs-sprite[data-anim='idle'] .hs-wing-f {
+  animation-name: hs-flap-f;
+}
+
+.hs-sprite[data-anim='idle'] .hs-cape,
+.hs-sprite[data-anim='idle'] .hs-scarf {
+  animation: hs-cape 2.2s ease-in-out infinite;
+  animation-delay: calc(var(--hs-phase, 0s) - 0.5s);
+}
+
+.hs-sprite[data-anim='idle'] .hs-tail,
+.hs-sprite[data-anim='idle'] .hs-leg {
+  animation: hs-tail 2s ease-in-out infinite;
+  animation-delay: calc(var(--hs-phase, 0s) - 0.2s);
+}
+
+/* Whole-body bounce: a small hop with a squash at the bottom (anchored at the feet). */
+.hs-sprite[data-anim='idle'] .hs-fig {
+  animation: hs-bob 1.5s ease-in-out infinite;
+  animation-delay: var(--hs-phase, 0s);
+}
+
+.hs-sprite[data-anim='idle'][data-body='ghost'] .hs-fig {
+  animation: hs-hover 2.6s ease-in-out infinite;
+  animation-delay: var(--hs-phase, 0s);
+}
+
+/* ambient loops (run in every state) */
+
+.hs-sprite .hs-aura {
+  animation: hs-aura 2.4s ease-in-out infinite;
+}
+
+.hs-sprite .hs-pt {
+  animation: hs-pt 3s linear infinite;
+  opacity: 0;
+}
+
+.hs-sprite .hs-spin {
+  animation: hs-spin 9s linear infinite;
+}
+
+.hs-sprite .hs-spark,
+.hs-sprite .hs-flame {
+  animation: hs-flicker 0.5s ease-in-out infinite alternate;
+}
+
+.hs-sprite .hs-wisp,
+.hs-sprite .hs-wispy {
+  animation: hs-wisp 2.2s ease-in-out infinite;
+}
+
+.hs-sprite .hs-halo {
+  animation: hs-halo 3s ease-in-out infinite;
+}
+
+.hs-sprite .hs-glyph {
+  animation: hs-glyph 3s ease-in-out infinite;
+}
+
+@keyframes hs-bob {
+  0%, 100% { transform: translateY(0) scale(1.03, 0.965); }
+  18% { transform: translateY(-1px) scale(0.99, 1.012); }
+  50% { transform: translateY(-3px) scale(0.995, 1.008); }
+  82% { transform: translateY(-0.5px) scale(1.01, 0.99); }
+}
+
+@keyframes hs-breathe {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(1.6px); }
+}
+
+@keyframes hs-chest {
+  0%, 100% { transform: scale(1, 1); }
+  50% { transform: scale(1.02, 0.975); }
+}
+
+@keyframes hs-nod {
+  0%, 100% { transform: rotate(-1.4deg); }
+  50% { transform: rotate(1.6deg); }
+}
+
+@keyframes hs-arm-n {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-4deg); }
+}
+
+@keyframes hs-arm-f {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(3.5deg); }
+}
+
+@keyframes hs-sway {
+  0%, 100% { transform: rotate(-4deg); }
+  50% { transform: rotate(6deg); }
+}
+
+@keyframes hs-flap {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-9deg); }
+}
+
+@keyframes hs-flap-f {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(8deg); }
+}
+
+@keyframes hs-cape {
+  0%, 100% { transform: skewX(0deg); }
+  50% { transform: skewX(-5deg); }
+}
+
+@keyframes hs-tail {
+  0%, 100% { transform: rotate(-4deg); }
+  50% { transform: rotate(5deg); }
+}
+
+@keyframes hs-hover {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+@keyframes hs-aura {
+  0%, 100% { opacity: 0.7; transform: scale(0.96); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+
+@keyframes hs-pt {
+  0% { opacity: 0; transform: translateY(8px) scale(0.6); }
+  20% { opacity: 1; }
+  75% { opacity: 0.9; }
+  100% { opacity: 0; transform: translateY(-30px) scale(1); }
+}
+
+@keyframes hs-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes hs-flicker {
+  from { transform: scale(0.85); opacity: 0.85; }
+  to { transform: scale(1.12); opacity: 1; }
+}
+
+@keyframes hs-wisp {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+@keyframes hs-halo {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+@keyframes hs-glyph {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.9; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hs-sprite .hs-up,
+  .hs-sprite .hs-torso,
+  .hs-sprite .hs-head,
+  .hs-sprite .hs-armn,
+  .hs-sprite .hs-armf,
+  .hs-sprite .hs-off,
+  .hs-sprite .hs-weapon,
+  .hs-sprite .hs-wing,
+  .hs-sprite .hs-cape,
+  .hs-sprite .hs-scarf,
+  .hs-sprite .hs-tail,
+  .hs-sprite .hs-leg,
+  .hs-sprite .hs-fig,
+  .hs-sprite .hs-spin,
+  .hs-sprite .hs-aura,
+  .hs-sprite .hs-halo,
+  .hs-sprite .hs-wisp,
+  .hs-sprite .hs-wispy,
+  .hs-sprite .hs-glyph {
+    animation: none !important;
+  }
+  .hs-sprite .hs-pt {
+    animation-duration: 6s;
+  }
+}
+
+/* -------------------------------------------------------------- portraits */
+
+:where(.hs-portrait) {
+  position: relative;
+  display: inline-block;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.hs-portrait {
+  background:
+    radial-gradient(circle at 50% 38%, var(--hp-a, #9cc4ff) 0%, var(--hp-b, #3a6ac8) 52%, var(--hp-c, #14244a) 100%);
+}
+
+.hs-portrait::before {
+  content: '';
+  position: absolute;
+  inset: -25%;
+  background: repeating-conic-gradient(from 0deg at 50% 45%, rgba(255, 255, 255, 0.13) 0deg 7deg, rgba(255, 255, 255, 0) 7deg 20deg);
+  pointer-events: none;
+}
+
+.hs-portrait > .hs-svg {
+  position: relative;
+}
+
+.hs-portrait .hs-fx,
+.hs-portrait .hs-string,
+.hs-portrait .hs-shadow,
+.hs-portrait .hs-glyph,
+.hs-portrait .hs-glow {
+  display: none;
+}

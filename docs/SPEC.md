@@ -113,7 +113,8 @@ It must record `initial`, `events`, `final`, `unitStats` per `BattleResult`.
 - 1-3 passives per hero (rarity 2: 1, rarity 3-4: 2, rarity 5: 3).
 - Equipment: 4 slots × 6 tiers. Weapon: atk (+ crit at high tiers). Armor: hp + armor. Helmet: hp + armor. Boots: spd + hp.
   Rough tier-1 values: weapon atk 20, armor hp 200 armor 8, helmet hp 150 armor 6, boots spd 3 hp 80; each tier ~×1.8.
-- Turkish names, titles, descriptions; one emoji each. Descriptions must state the real numbers (e.g. "%120 saldırı hasarı").
+- Turkish names, titles, descriptions; one `emoji` concept each (data only — the UI never renders it; every hero is
+  drawn by `src/art`). Descriptions must state the real numbers (e.g. "%120 saldırı hasarı").
 
 ## 5. Economy & modes
 
@@ -146,45 +147,93 @@ battles with chibi cartoon heroes), but **every asset is original**: no art, cha
 copied from Idle Heroes or any other game. All art is generated in `src/art/**` (SVG/CSS/canvas). **No emoji
 anywhere in the UI** (they render inconsistently, e.g. 🪙 is a missing glyph on Windows) — use `icon()`.
 
-**Stage:** fixed design resolution 1280×720, scaled uniformly to fit the viewport (letterboxed with a themed
-backdrop). In a portrait viewport the stage is rotated 90° so it fills the screen when the phone is turned
-sideways (common mobile web-game technique), with a small one-time hint "Daha iyi görüntü için telefonu yan çevir".
+**Stage:** fixed design resolution 1280×720 (the *safe area*: every control lives inside it), scaled uniformly to
+fit the viewport. **Full bleed:** on any other aspect ratio (a 2.16:1 phone, a 4:3 tablet) there are no dead bars —
+`stageBleed()` measures how far the screen reaches past the stage (`--bleed-x/-y`, painted art is drawn up to 240 px
+left/right and 150 px above/below the stage) and where the notch-free screen edges are (`--edge-l/r/t/b`). Backgrounds
+(town, scenes, modal scrims, full panels) paint into the bleed; the hub HUD and the battle HUD are anchored to the real
+screen edges. In a portrait viewport the stage is rotated 90° so it fills the screen when the phone is turned sideways
+(the bleed then runs along the long side), with a small one-time hint "Daha iyi görüntü için telefonu yan çevir".
 Pinch-zoom stays available; `viewport-fit=cover` + safe-area insets.
 
-**Town hub (home):** full-stage `townScene()` illustration with clickable buildings + ribbon labels:
-Sefer Kapısı (campaign), Çağırma Çemberi (summon), Kadim Kule (tower), Kahramanlar Salonu (heroes); locked
-"Yakında": Arena, Lonca, Pazar. Overlaid HUD: top-left avatar with player level & exp ring + name; top-center
-resource pills (gold, spirit, gems) with "+" buttons; top-right settings; left column round buttons (Takım, Görevler
-placeholder); bottom-left current chapter & stage progress ("Bölüm 3 · 4/10") with the idle chest button (glows when
-rewards are waiting, shows a live counter); bottom-right icon row (Kahramanlar, Çanta/ekipman, Çağır, Takım).
+**Town hub (home):** full-bleed `townScene()` illustration at dusk (deep blue to lavender sky with painted cloud
+banks, saturated greens, long cast shadows, vignette, dark foreground foliage, fireflies) with clickable buildings +
+ribbon labels: Sefer Kapısı (campaign: a stone portal arch grown into the trunk of a colossal plane tree whose crown
+carries swinging paper lanterns — the hub's centrepiece), Yıldız Sunağı (summon), Kadim Kule (tower), Kahramanlar
+Salonu (heroes); locked "Yakında": Arena, Lonca, Pazar. The plaza has a fountain with a golden sun finial and bunting;
+a 3/4-view stone rampart with torch posts closes the foreground. Overlaid HUD: top-left avatar with player level & exp
+ring + name; top-center resource pills (Altın, Gök Taşı, Yakut) with "+" buttons; top-right settings with a column of
+event buttons under it (Günlük Ödül, Başarımlar); left column round buttons (Sohbet, Görevler, Posta); bottom-left
+current chapter & stage progress ("Bölüm 3 · 4/10", opens the campaign) with the idle chest button (glows when rewards
+are waiting, shows a live counter, collects on tap); bottom-right icon row (Kahramanlar, Çanta = read-only gear &
+scroll stock, Çağır, Takım). Sohbet, Görevler, Posta, Günlük Ödül and Başarımlar are "Yakında" placeholders. Every
+other screen replaces the avatar with a back button + screen title.
 
-**Campaign screen:** chapter map with stage nodes along a path over a painted backdrop, current stage highlighted;
-panel with enemy lineup portraits, enemy power vs team power, first-clear rewards, idle chest with live ticking
-loot & "Topla", "Savaş" (opens formation confirm → battle).
+**Campaign screen:** chapter map with stage nodes along a path over a painted backdrop: cleared nodes gold with a
+golden trail, the current stage pulsing, locked nodes show the reward chest with a small lock, the chapter boss a
+larger crowned node; panel with enemy lineup portraits, enemy power vs team power, first-clear rewards, idle chest with
+live ticking loot & "Topla", "Savaş" (opens formation confirm → battle).
 
-**Heroes:** IH-style grid of square portrait cards (frame color by stars, faction badge top-left, level bottom-left,
-stars along the bottom), faction filter tabs on the side/top, sorted by power. Hero detail: large full-body sprite on
-the left on a faction-themed pedestal, stats/skills/equipment tabs on the right, level-up / star-up / equip actions.
+**Heroes:** grid of 128 px square portrait cards, 7 per row (frame color by stars, faction badge top-left, level
+bottom-left, stars along the bottom), padded to at least two rows with dim empty slots, in a semi-transparent panel;
+hero-count and sort chips in the header; faction filter tabs on the side; sorted by power. Hero detail: large full-body
+sprite on the left on a faction-themed pedestal, Gelişim / Ekipman (paper doll: weapon & armour left, helmet & boots
+right, the hero in between) / Yetenekler tabs on the right with a "more below" hint, level-up / star-up / equip
+actions.
 
-**Summon (Çağırma Çemberi):** glowing summoning circle scene; Temel & Kahraman banners with ×1/×10 and costs, rates,
-pity counter; reveal: heroes appear from the circle one by one, card flip, 5★ special glow.
+**Summon (Yıldız Sunağı):** glowing summoning circle scene; Gezgin Çağrısı (basic) & Destan Çağrısı (heroic)
+banners with ×1/×10 and costs, rates, pity counter; reveal: the circle spins up, a light beam carries each card out of
+it, ornate card backs flip; 4★ and 5★ get a rarity-coloured light pillar and a spark burst, 5★ also a screen flash and
+a shake.
 
 **Tower:** vertical tower illustration with floor number, enemy power vs team, rewards, "Savaş".
 
-**Formation:** side-view arrangement, 2 front + 4 back slots like the battle layout, hero bench below, "Otomatik".
+**Formation:** side-view arrangement, 2 front + 4 back slots like the battle layout, hero bench below (edge fade and
+a scroll arrow while more heroes are off to the right), "Otomatik"; the how-to tip sits behind an (i) button.
 (Otomatik: 6 strongest by power, warriors beyond the two strongest weighted `EXTRA_WARRIOR_WEIGHT`; warriors then
 highest hp in front.)
 
-**Battle (side view):** painted `sceneBackground()`; player team on the LEFT facing right, enemy team on the RIGHT
-facing left; front row (2) nearer the middle, back row (4) behind, staggered vertically like a 2-4 formation on the
-ground. Over each hero: HP bar (green, red for enemies) + thin yellow energy bar, level number + faction icon at the
-bar's left, status icons. Top-center "Tur N/15"; top-right speed button (×1/×2/×4) and "Atla"; bottom corners show
-small portraits of each side? (optional). Events animate with `setSpriteAnim` + `playVfx`: basic attack = melee
-dash-and-strike (warriors/assassins) or projectile (rangers/mages/priests); skills = cast pose + skill-name banner +
-big VFX on targets; floating damage numbers (white with dark outline, crit bigger orange "Kritik!", heal green,
-dodge "Iska"); hit flash & knockback; death = fall + fade. Result: Zafer/Yenilgi banner with rewards, per-unit damage
-meter, "Devam" / "Sonraki Aşama".
+**Battle (side view):** painted full-bleed `sceneBackground()`; the screen fades through dark into the battle (never
+two screens at partial opacity) and round 1 starts after the teams run in. Player team on the LEFT facing right,
+enemy team on the RIGHT facing left, ~140 px tall heroes (SPRITE_SCALE 1.1) in three columns 150 px apart (front ~520,
+back ~370 / ~220) over the ground band y 410-675, units in a column ~190 px apart so a bar block never covers the head
+behind, a 220+ px gap at the centre line. Over each hero: HP bar (green, red for enemies) + thin yellow energy bar,
+level number + faction icon at the bar's left, status icons. Top-center "Tur N/15"; top-right a rounded-square speed
+button with a double-chevron glyph (×1/×2/×4, remembered) and "Atla". Events animate with `setSpriteAnim` + `playVfx`:
+basic attack = melee dash-and-strike (warriors/assassins, who lean into the fight) or projectile (rangers/mages/priests);
+skills = cast pose + a skill-name ribbon with the caster's portrait in a fixed lane under the top HUD (over the caster's
+half) + big VFX on targets. Floating feedback keeps two lanes: numbers (white, crit bigger orange "Kritik!", heal
+green, DoT ticks) and "Iska" pop 26 px above the bar block and drift up and outward; control statuses (Sersemletme,
+Donma…) are words at mid-body; buffs / debuffs are icon chips (arrow + stat icon) with no text, and a buff landing on
+3+ heroes of one side is one "Takım: Saldırı +" line under the ribbon instead. Hit flash & knockback; death = fall +
+fade. The backdrop follows the content: tower hall for the tower, chapters cycle mine / forest / ruins / volcano, boss
+stages use void or volcano. Result: Zafer/Yenilgi banner with reward tiles, per-unit damage / healing meter, "Devam"
+plus "Sonraki Aşama" / "Sonraki Kat" / "Tekrar Dene" (straight into the next fight).
 
-Toasts for errors/success. Buttons are chunky, glossy cartoon buttons (gold/orange primary, blue secondary)
-with thick outlines and drop shadows; panels are framed parchment/stone-blue panels with ornate corners, mimicking
-the genre feel with original drawing.
+Toasts for errors/success (core messages pass through `plainText()`, so a star glyph becomes "yıldızlı" and the
+resources' working names in core messages become their display names: ruh özü → gök taşı, elmas → yakut). Buttons
+are chunky, glossy cartoon buttons (gold/orange primary, blue secondary) with thick outlines and drop shadows. Every
+panel (screen side panels, modals, the result panel) shares one frame: an 8 px bevelled bronze-gold band between two
+dark lines, an inner shadow, a top-lit blue fill with a fine diagonal texture, large original corner ornaments with a
+gem, and a red header plate built into the top edge. Type: rounded heavy faces first (`ui-rounded`, Arial Rounded,
+Segoe UI / Segoe UI Black on Windows — no narrow humanist faces); titles, ribbons and big numbers share one display
+treatment (dark stroke under the fill + short drop shadow).
+
+**Art rendering:** characters are soft-shaded — every fill is a top-right-lit linear gradient over a cel-shadow
+tone that picks up a faction-tinted reflected light on the far edge, ink lines are a deep hue of each shape's own
+fill, weapons are drawn ~1.2× for readable silhouettes, a radial ground shadow with a contact core sits under the feet,
+and the idle loop is a 1.5 s bounce with a squash at the bottom (random phase per unit). Environments use depth: far
+layers are pulled toward the air colour with thin, fill-coloured lines (`atDepth()` / `lineAt()` in `env/kit.ts`) and a
+haze band, near layers keep the thick cartoon outline.
+
+**Art module API** (`src/art/index.ts`): `heroSprite(id, {facing})` / `setSpriteAnim(el, anim)` (idle, attack, cast,
+hit, die, victory; promise-based) / `heroPortrait(id, {size})` for the 30 code-drawn chibi heroes; `icon(name, size)`
+for every UI symbol; `sceneBackground(kind)` (`cave` = the amber mine, forest, ruins, volcano, tower, void; fills its
+parent and paints its 1760×1020 art box past it); `townScene({onBuilding, locked, badges})` / `updateTownScene()` for
+the hub; `playVfx(layer, kind, from, to, opts)` for battle effects. The stage helpers in `src/ui/stage.ts`
+(`stageLayer`, `clientToStage`, `stageRectOf`, `stageBleed` / `stageBleedNow`) convert screen coordinates to stage
+pixels and report the bleed.
+
+**Dev galleries** (not part of the production build; `vite build` only bundles `index.html`): `/gallery-heroes.html`
+(every hero sprite, portrait and animation) and `/gallery-env.html` (icons, scenes with full-bleed previews, town, VFX
+playground) under `npm run dev`.

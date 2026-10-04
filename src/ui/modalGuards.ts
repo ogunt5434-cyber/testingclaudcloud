@@ -72,7 +72,7 @@ export function historyEntryIndex(state: unknown): number {
  * instead of navigating away from the game.
  *
  * - `opened()` pushes an entry.
- * - `closed()` (a modal closed by the app: ✕, backdrop, a button) pops its entry. Pops are batched into a
+ * - `closed()` (a modal closed by the app: close button, backdrop, a button) pops its entry. Pops are batched into a
  *   single `history.go(-n)` on the next microtask, and a modal opened before that reuses one of the
  *   entries (e.g. "Sonraki Aşama" closes the result + battle and opens the next battle in one tap).
  * - `popped(state)` handles a popstate event and returns how many Back steps the user took (0 for the

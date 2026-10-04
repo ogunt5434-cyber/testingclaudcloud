@@ -1,14 +1,16 @@
-// Full-screen battle playback: steps through BattleResult.events with speed-scaled timers,
-// supports ×1/×2/×4 and "Atla", then opens the result modal.
-import { MAX_ROUNDS, STATUS_INFO } from '../../core/constants';
+// Full-stage battle playback: steps through BattleResult.events with speed-scaled timers and stages each
+// event on the side-view battlefield (see ../battle/view.ts); ×1/×2/×4 and "Atla", then the result screen.
+import { icon } from '../../art';
+import type { SceneKind } from '../../art/types';
+import { MAX_ROUNDS } from '../../core/constants';
 import type { FightOutcome } from '../../core/game';
 import type { BattleEvent } from '../../core/types';
+import { planSkill, sceneForBattle } from '../battle/choreo';
 import { BattleModel } from '../battle/model';
-import { SPEEDS, delayAfter, type Speed } from '../battle/timing';
+import { ENTRANCE_MS, IMPACT_BASIC_MS, SPEEDS, delayAfter, type Speed } from '../battle/timing';
 import { BattleView } from '../battle/view';
 import type { Ui } from '../context';
 import { h } from '../dom';
-import { fmtBuff, fmtNum } from '../format';
 import { openModal } from '../overlay';
 import { Timers } from '../timers';
 import { openResult } from './result';
@@ -17,12 +19,14 @@ const SPEED_KEY = 'dk-battle-speed';
 
 export interface BattleOptions {
   outcome: FightOutcome;
-  /** Header title, e.g. "Aşama 1-3". */
+  /** Header title, e.g. "Aşama 1-3" or "Kule · Kat 7". */
   title: string;
   /** Secondary result button ("Sonraki Aşama" / "Tekrar Dene"); hidden when absent. */
   next?: { winLabel: string; lossLabel: string; run: () => void };
   /** Account level-up caused by this fight's rewards, announced on the result screen. */
   levelUp?: { from: number; to: number } | null;
+  /** Painted backdrop; by default derived from the title / stage (tower hall, chapter cycle, boss scenes). */
+  scene?: SceneKind;
   onClose?: () => void;
 }
 
@@ -48,26 +52,50 @@ export function openBattle(ui: Ui, opts: BattleOptions): void {
   const events = result.events;
   const timers = new Timers();
   const model = new BattleModel(result.initial);
-  const view = new BattleView(model, timers);
+  const tower = /^\s*kule/i.test(opts.title);
+  const view = new BattleView(model, timers, {
+    scene: opts.scene ?? sceneForBattle(opts.title, opts.outcome.level),
+    title: opts.title,
+    maxRounds: MAX_ROUNDS,
+    tower,
+  });
   let speed = loadSpeed();
   let index = 0;
   let finished = false;
 
-  const roundLabel = h('span', { class: 'bt-round' }, `Tur 0/${MAX_ROUNDS}`);
-  const speedBtn = h('button', { class: 'bt-btn', attrs: { type: 'button' }, onClick: cycleSpeed });
-  const skipBtn = h('button', { class: 'bt-btn bt-skip', attrs: { type: 'button' }, onClick: skip }, 'Atla ⏭');
-  const header = h('div', { class: 'bt-header' }, roundLabel, h('span', { class: 'bt-title' }, opts.title), h('div', { class: 'bt-controls' }, speedBtn, skipBtn));
+  const speedVal = h('span', { class: 'bt-speed-val' });
+  const glyph = h('span', { class: 'bt-speed-glyph', attrs: { 'aria-hidden': 'true' } });
+  // Double chevron "fast forward" glyph (our own button language, matching "Atla").
+  glyph.innerHTML =
+    '<svg viewBox="0 0 30 22" width="30" height="22" xmlns="http://www.w3.org/2000/svg"><g fill="#fff" stroke="#0c2a56" stroke-width="2.4" stroke-linejoin="round">' +
+    '<path d="M2 3h6l8 8-8 8H2l8-8z"/><path d="M13 3h6l8 8-8 8h-6l8-8z"/></g></svg>';
+  const speedBtn = h('button', { class: 'bt-btn bt-speed', attrs: { type: 'button', title: 'Savaş hızı' }, onClick: cycleSpeed }, glyph, speedVal);
+  const skipBtn = h(
+    'button',
+    { class: 'bt-btn bt-skip', attrs: { type: 'button', 'aria-label': 'Atla — savaşın sonucuna geç' }, onClick: skip },
+    h('span', { class: 'bt-skip-txt' }, 'Atla'),
+    icon('skip', 26),
+  );
+  view.controls.append(speedBtn, skipBtn);
 
   const modal = openModal(
-    { bare: true, dismissible: false, className: 'battle-screen', onClose: () => timers.clear() },
-    h('div', { class: 'battle' }, header, view.el),
+    {
+      bare: true,
+      dismissible: false,
+      className: 'battle-screen',
+      onClose: () => {
+        timers.clear();
+        view.destroy();
+      },
+    },
+    view.el,
   );
+  modal.root.classList.add('bt-layer');
 
   function applySpeed(): void {
-    speedBtn.textContent = `×${speed}`;
+    speedVal.textContent = `×${speed}`;
     // The label must carry the value: an aria-label replaces the visible "×2" for screen readers.
     speedBtn.setAttribute('aria-label', `Hız ×${speed}`);
-    speedBtn.title = 'Savaş hızı';
     view.setSpeed(speed);
   }
 
@@ -77,81 +105,60 @@ export function openBattle(ui: Ui, opts: BattleOptions): void {
     applySpeed();
   }
 
-  function present(ev: BattleEvent): void {
+  function present(ev: BattleEvent, at: number): void {
     switch (ev.t) {
       case 'roundStart':
-        roundLabel.textContent = `Tur ${ev.round}/${MAX_ROUNDS}`;
+        view.beginTurn(null);
         view.roundBanner(ev.round, MAX_ROUNDS);
-        // The model drops expired buffs at round start: refresh every card, not only the ones that act.
+        // The model drops expired buffs at round start: refresh every bar, not only the ones that act.
         view.syncAll();
         return;
       case 'action':
-        if (ev.kind === 'skill') {
-          view.skillBanner(ev.actor, ev.skillName ?? 'Yetenek');
-          view.pulse(ev.actor, 'casting', 900);
-        }
-        if (ev.targets[0]?.side !== ev.actor.side) view.lunge(ev.actor, ev.targets[0]);
+        if (ev.kind === 'skill') view.castSkill(ev.actor, ev.skillName ?? 'Yetenek', planSkill(events, at));
+        else view.basicAttack(ev.actor, ev.targets[0], IMPACT_BASIC_MS);
         view.syncRef(ev.actor);
         return;
       case 'damage':
-        view.syncRef(ev.target);
-        presentDamage(ev);
+        view.damage(ev.target, ev.source, ev.amount, ev.crit, ev.kind);
         return;
       case 'dodge':
-        view.float(ev.target, 'Iska', 'dodge');
+        view.dodge(ev.target);
         return;
       case 'heal':
-        view.syncRef(ev.target);
-        view.float(ev.target, `+${fmtNum(ev.amount)}`, 'heal');
+        view.heal(ev.target, ev.amount);
         return;
       case 'energy':
-        view.syncRef(ev.target);
-        return;
-      case 'status':
-        view.syncRef(ev.target);
-        if (ev.on) view.float(ev.target, `${STATUS_INFO[ev.status]?.icon ?? ''} ${STATUS_INFO[ev.status]?.name ?? ev.status}`, 'status');
-        return;
-      case 'buff':
-        view.syncRef(ev.target);
-        view.float(ev.target, `${ev.amount >= 0 ? '▲' : '▼'} ${fmtBuff(ev.stat, ev.amount)}`, ev.amount >= 0 ? 'buff' : 'debuff');
-        return;
       case 'buffEnd':
         view.syncRef(ev.target);
         return;
+      case 'status':
+        view.status(ev.target, ev.status, ev.on);
+        return;
+      case 'buff':
+        view.buff(ev.target, ev.stat, ev.amount);
+        return;
       case 'passive':
-        view.float(ev.actor, `✦ ${ev.name}`, 'passive');
-        view.pulse(ev.actor, 'passive-glow', 500);
+        view.passive(ev.actor, ev.name);
         return;
       case 'skip':
-        view.float(ev.actor, `${STATUS_INFO[ev.reason]?.icon ?? ''} Atladı`, 'status');
-        view.pulse(ev.actor, 'skipping', 500);
+        view.skipTurn(ev.actor, ev.reason);
         return;
       case 'death':
-        view.syncRef(ev.target);
-        view.float(ev.target, '💀', 'death');
+        view.die(ev.target);
         return;
       case 'battleEnd':
+        view.victory(ev.winner);
         return;
     }
-  }
-
-  function presentDamage(ev: Extract<BattleEvent, { t: 'damage' }>): void {
-    if (ev.kind === 'dot') {
-      const dot = [...(model.unit(ev.target)?.statuses.keys() ?? [])].find((s) => s === 'burn' || s === 'poison' || s === 'bleed');
-      view.float(ev.target, `${dot ? STATUS_INFO[dot].icon : ''}-${fmtNum(ev.amount)}`, 'dot');
-      return;
-    }
-    view.hit(ev.target, ev.crit);
-    if (ev.crit) view.float(ev.target, `-${fmtNum(ev.amount)}!`, 'crit');
-    else view.float(ev.target, `-${fmtNum(ev.amount)}`, ev.kind === 'skill' ? 'skill' : 'dmg');
   }
 
   function step(): void {
     if (modal.closed || finished) return;
-    const ev = events[index++];
+    const at = index++;
+    const ev = events[at];
     if (!ev) return finish(false);
     model.apply(ev);
-    present(ev);
+    present(ev, at);
     if (ev.t === 'battleEnd') return finish(false);
     timers.after(delayAfter(ev, events[index]) / speed, step);
   }
@@ -159,11 +166,11 @@ export function openBattle(ui: Ui, opts: BattleOptions): void {
   function skip(): void {
     if (finished) return;
     timers.clear();
-    // Clearing the timers also cancelled the cleanup of in-flight effects (glows, sparks, floats, banners).
-    view.resetEffects();
     while (index < events.length) model.apply(events[index++]);
-    roundLabel.textContent = `Tur ${result.rounds}/${MAX_ROUNDS}`;
-    view.syncAll();
+    view.setRound(result.rounds);
+    // Clearing the timers also cancelled the cleanup of in-flight effects: the view drops them itself.
+    view.settle();
+    view.victory(result.winner);
     finish(true);
   }
 
@@ -171,7 +178,7 @@ export function openBattle(ui: Ui, opts: BattleOptions): void {
     if (finished) return;
     finished = true;
     skipBtn.disabled = true;
-    timers.after(instant ? 120 : 800 / speed, showResult);
+    timers.after(instant ? 150 : 1150 / speed, showResult);
   }
 
   function showResult(): void {
@@ -191,5 +198,11 @@ export function openBattle(ui: Ui, opts: BattleOptions): void {
   }
 
   applySpeed();
-  timers.after(450, step);
+  // The screen first goes dark (bt-layer wipe, ~180 ms); the teams run in as the battle fades in, and
+  // round 1 starts once the wipe is over.
+  view.entrance(WIPE_DARK_MS);
+  timers.after(WIPE_DARK_MS + ENTRANCE_MS / speed, step);
 }
+
+/** Dark half of the screen wipe into a battle (see .bt-layer in battle.css). */
+const WIPE_DARK_MS = 180;

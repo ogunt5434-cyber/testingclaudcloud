@@ -1,4 +1,5 @@
 // "Yetenekler" tab of the hero detail: active skill and passives with their Turkish descriptions.
+import { icon } from '../../art';
 import { ENERGY_TO_CAST } from '../../core/constants';
 import type { HeroDef, PassiveDef, PassiveTrigger } from '../../core/types';
 import { h } from '../dom';
@@ -24,14 +25,14 @@ export function skillsTab(def: HeroDef): HTMLElement {
     h(
       'div',
       { class: 'skill active-skill' },
-      h('div', { class: 'skill-head' }, h('span', { class: 'skill-icon' }, '⚡️'), h('span', { class: 'skill-name' }, def.active.name), h('span', { class: 'skill-tag' }, `Aktif · ${ENERGY_TO_CAST} Enerji`)),
+      h('div', { class: 'skill-head' }, h('span', { class: 'skill-icon' }, icon('speed', 34)), h('span', { class: 'skill-name' }, def.active.name), h('span', { class: 'skill-tag' }, `Aktif · ${ENERGY_TO_CAST} Enerji`)),
       h('p', { class: 'skill-desc' }, def.active.description),
     ),
     def.passives.map((p) =>
       h(
         'div',
         { class: 'skill passive-skill' },
-        h('div', { class: 'skill-head' }, h('span', { class: 'skill-icon' }, '✦'), h('span', { class: 'skill-name' }, p.name), h('span', { class: 'skill-tag' }, passiveTag(p))),
+        h('div', { class: 'skill-head' }, h('span', { class: 'skill-icon' }, icon('buff-up', 30)), h('span', { class: 'skill-name' }, p.name), h('span', { class: 'skill-tag' }, passiveTag(p))),
         h('p', { class: 'skill-desc' }, p.description),
       ),
     ),

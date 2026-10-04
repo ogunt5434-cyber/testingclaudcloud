@@ -1,37 +1,31 @@
-// App shell: top resource bar, tab bar, screen switching and the Ui context (toasts, change fan-out).
-import { IDLE_CAP_HOURS } from '../core/constants';
+// App shell on the 1280x720 stage: town hub (home) and full-stage screens, the HUD, the save banner and
+// the Ui context (toasts, navigation, change fan-out).
+import { icon } from '../art';
 import type { Game } from '../core/game';
-import { playerExpToNext } from '../core/progression';
 import { SAVE_KEY } from '../core/save';
-import type { ResourceKey } from '../core/types';
 import { safely, type Screen, type TabId, type Ui } from './context';
 import { h, mount } from './dom';
-import { RESOURCE_INFO, fmtNum, fraction } from './format';
-import { levelUpText, saveNotice, starUpReadyUids, type SaveNotice } from './hints';
-import { openSettings } from './modals/settings';
+import { levelUpText, saveNotice, type SaveNotice } from './hints';
+import { createHud } from './hud';
 import { createCampaignScreen } from './screens/campaign';
 import { createHeroesScreen } from './screens/heroes';
+import { createHubScreen } from './screens/hub';
 import { createSummonScreen } from './screens/summon';
 import { createTowerScreen } from './screens/tower';
+import { mountStage, stageLayer } from './stage';
+import { Timers } from './timers';
 import { showToast } from './toast';
 
-const TABS: { id: TabId; label: string; icon: string }[] = [
-  { id: 'campaign', label: 'Kampanya', icon: '🗺️' },
-  { id: 'heroes', label: 'Kahramanlar', icon: '🦸' },
-  { id: 'summon', label: 'Çağır', icon: '🌀' },
-  { id: 'tower', label: 'Kule', icon: '🗼' },
-];
-const TOP_RESOURCES: ResourceKey[] = ['gold', 'spirit', 'gems'];
+const SCREEN_IDS: readonly TabId[] = ['hub', 'campaign', 'heroes', 'summon', 'tower'];
 const TAB_KEY = 'dk-tab';
-/** Show the campaign badge once the idle chest has filled this long. */
-const IDLE_BADGE_MS = 60 * 60 * 1000;
 
+/** The hub is home; a remembered screen is reopened on reload (the back button returns to the hub). */
 function loadTab(): TabId {
   try {
     const saved = localStorage.getItem(TAB_KEY);
-    return TABS.some((t) => t.id === saved) ? (saved as TabId) : 'campaign';
+    return SCREEN_IDS.includes(saved as TabId) ? (saved as TabId) : 'hub';
   } catch {
-    return 'campaign';
+    return 'hub';
   }
 }
 
@@ -39,24 +33,25 @@ function saveTab(tab: TabId): void {
   try {
     localStorage.setItem(TAB_KEY, tab);
   } catch {
-    // storage unavailable: the tab is simply not remembered
+    // storage unavailable: the screen is simply not remembered
   }
 }
 
 export function mountApp(root: HTMLElement, game: Game): Ui {
+  mountStage(root);
   const listeners = new Set<() => void>();
-  const lastAmounts = new Map<ResourceKey, number>();
-  const topBar = h('header', { class: 'topbar' });
+  const screensLayer = stageLayer('screens');
+  const hudLayer = stageLayer('hud');
   /** Warning shown while progress is not being saved (another tab took over, or storage is unavailable). */
-  const saveBanner = h('div', { class: 'save-banner-slot', attrs: { hidden: true } });
+  const saveBanner = stageLayer('banner');
+  saveBanner.hidden = true;
   let shownNotice: SaveNotice | null = null;
   let unavailableDismissed = false;
-  const main = h('main', { class: 'main', attrs: { id: 'main' } });
-  const tabBar = h('nav', { class: 'tabbar', attrs: { 'aria-label': 'Ana menü' } });
   let active: TabId = loadTab();
   const dirty = new Set<TabId>();
   let knownLevel = game.state.player.level;
   let levelToastMuted = 0;
+  const clock = new Timers();
 
   const ui: Ui = {
     game,
@@ -77,45 +72,14 @@ export function mountApp(root: HTMLElement, game: Game): Ui {
     },
   };
 
+  const hud = createHud(ui);
   const screens: Record<TabId, Screen> = {
+    hub: createHubScreen(ui),
     campaign: createCampaignScreen(ui),
     heroes: createHeroesScreen(ui),
     summon: createSummonScreen(ui),
     tower: createTowerScreen(ui),
   };
-
-  function renderTopBar(): void {
-    const { player, resources } = game.state;
-    const toNext = safely(() => playerExpToNext(player.level), 0);
-    const pills = TOP_RESOURCES.map((key) => {
-      const amount = resources[key];
-      const before = lastAmounts.get(key);
-      lastAmounts.set(key, amount);
-      const change = before === undefined || before === amount ? null : amount > before ? 'up' : 'down';
-      return h(
-        'div',
-        { class: ['pill', `pill-${key}`, change && `bump-${change}`], attrs: { title: RESOURCE_INFO[key].name } },
-        h('span', { class: 'pill-icon' }, RESOURCE_INFO[key].icon),
-        h('span', { class: 'pill-value' }, fmtNum(amount)),
-      );
-    });
-    mount(
-      topBar,
-      h(
-        'div',
-        { class: 'tb-row' },
-        h(
-          'button',
-          { class: 'player-plate', attrs: { type: 'button', 'aria-label': 'Oyuncu ve ayarlar' }, onClick: () => openSettings(ui) },
-          h('div', { class: 'avatar' }, h('span', null, '🛡️'), h('span', { class: 'avatar-lv' }, String(player.level))),
-          h('div', { class: 'player-info' }, h('span', { class: 'player-name' }, player.name), progressMini(fraction(player.exp, toNext))),
-        ),
-        h('div', { class: 'brand', attrs: { 'aria-hidden': 'true' } }, 'Diyar Kahramanları'),
-        h('button', { class: 'gear', attrs: { type: 'button', 'aria-label': 'Ayarlar' }, onClick: () => openSettings(ui) }, '⚙️'),
-      ),
-      h('div', { class: 'pills' }, pills),
-    );
-  }
 
   /** Rebuilt only when the notice changes, so screen readers announce it once. */
   function renderSaveBanner(): void {
@@ -142,9 +106,9 @@ export function mountApp(root: HTMLElement, game: Game): Ui {
       h(
         'div',
         { class: ['save-banner', `save-banner-${notice.problem}`], attrs: { role: 'alert' } },
-        h('span', { class: 'save-banner-icon', attrs: { 'aria-hidden': 'true' } }, notice.action === 'reload' ? '🔄' : '⚠️'),
+        h('span', { class: 'save-banner-icon', attrs: { 'aria-hidden': 'true' } }, icon(notice.action === 'reload' ? 'auto' : 'info', 34)),
         h('span', { class: 'save-banner-text' }, notice.text),
-        h('button', { class: ['btn', 'btn-small', notice.action === 'reload' ? 'btn-gold' : 'btn-secondary'], attrs: { type: 'button' }, onClick: act }, notice.label),
+        h('button', { class: ['btn', 'btn-small', notice.action === 'reload' ? 'btn-gold' : 'btn-secondary'], attrs: { type: 'button' }, onClick: act }, h('span', { class: 'btn-main' }, h('span', { class: 'btn-label' }, notice.label))),
       ),
     );
   }
@@ -155,20 +119,6 @@ export function mountApp(root: HTMLElement, game: Game): Ui {
     renderSaveBanner();
   }
 
-  function progressMini(frac: number): HTMLElement {
-    return h('div', { class: 'exp-mini' }, h('div', { style: { width: `${Math.round(frac * 100)}%` } }));
-  }
-
-  function badges(): Partial<Record<TabId, boolean>> {
-    const { resources, campaign } = game.state;
-    const idleMs = Math.min(IDLE_CAP_HOURS * 3_600_000, game.now() - campaign.idleSince);
-    return {
-      campaign: idleMs >= IDLE_BADGE_MS,
-      heroes: safely(() => starUpReadyUids(game.state).size > 0, false),
-      summon: resources.basicScroll > 0 || resources.heroicScroll > 0,
-    };
-  }
-
   /** Account level-ups (and their gems) happen inside other actions: announce them. */
   function checkLevelUp(): void {
     const level = game.state.player.level;
@@ -177,33 +127,24 @@ export function mountApp(root: HTMLElement, game: Game): Ui {
     if (text) showToast(text, 'reward', 3600);
   }
 
-  function renderTabs(): void {
-    const marks = safely(badges, {});
-    mount(
-      tabBar,
-      TABS.map((tab) =>
-        h(
-          'button',
-          {
-            class: ['tab', active === tab.id && 'active'],
-            attrs: { type: 'button', 'aria-current': active === tab.id ? 'page' : null },
-            onClick: () => goTo(tab.id),
-          },
-          h('span', { class: 'tab-icon' }, tab.icon),
-          h('span', { class: 'tab-label' }, tab.label),
-          marks[tab.id] ? h('span', { class: 'tab-dot', attrs: { 'aria-label': 'Yeni' } }) : null,
-        ),
-      ),
-    );
-  }
-
   function renderScreen(id: TabId): void {
     try {
       screens[id].render();
       dirty.delete(id);
     } catch (err) {
       console.error(`Screen ${id} failed to render`, err);
-      mount(screens[id].el, h('div', { class: 'empty-state' }, h('div', { class: 'empty-icon' }, '⚠️'), h('p', null, 'Bu ekran yüklenemedi.')));
+      mount(
+        screens[id].el,
+        h('div', { class: 'empty-state screen-error' }, h('div', { class: 'empty-icon' }, icon('info', 64)), h('p', null, 'Bu ekran yüklenemedi.')),
+      );
+    }
+  }
+
+  function renderHud(): void {
+    try {
+      hud.render(active);
+    } catch (err) {
+      console.error('HUD failed to render', err);
     }
   }
 
@@ -213,21 +154,22 @@ export function mountApp(root: HTMLElement, game: Game): Ui {
       screens[active].el.hidden = true;
       active = tab;
       saveTab(tab);
+      screens[active].el.classList.remove('entering');
+      void screens[active].el.offsetWidth;
+      screens[active].el.classList.add('entering');
     }
     const screen = screens[active];
     screen.el.hidden = false;
     if (dirty.has(active) || !screen.el.hasChildNodes()) renderScreen(active);
     screen.show?.();
-    main.scrollTop = 0;
-    renderTabs();
+    renderHud();
   }
 
   function refresh(): void {
     checkLevelUp();
-    renderTopBar();
+    renderHud();
     renderSaveBanner();
-    renderTabs();
-    TABS.forEach((t) => dirty.add(t.id));
+    SCREEN_IDS.forEach((id) => dirty.add(id));
     renderScreen(active);
     for (const fn of [...listeners]) {
       try {
@@ -238,17 +180,23 @@ export function mountApp(root: HTMLElement, game: Game): Ui {
     }
   }
 
-  for (const tab of TABS) {
-    screens[tab.id].el.hidden = true;
-    main.append(screens[tab.id].el);
+  for (const id of SCREEN_IDS) {
+    screens[id].el.hidden = true;
+    screensLayer.append(screens[id].el);
   }
-  mount(root, h('div', { class: 'app-shell' }, topBar, saveBanner, main, tabBar));
+  hudLayer.append(hud.el);
   game.subscribe(refresh);
-  renderTopBar();
   renderSaveBanner();
-  TABS.forEach((t) => dirty.add(t.id));
+  SCREEN_IDS.forEach((id) => dirty.add(id));
   goTo(active);
-  setInterval(renderTabs, 30_000);
+  // Live HUD: idle chest counter every second; badges (idle chest filling up) every 30 s.
+  clock.every(1000, () => hud.tick());
+  clock.every(30_000, () => {
+    if (active === 'hub') {
+      renderHud();
+      renderScreen('hub');
+    }
+  });
 
   const persist = (): void => safely(() => game.save(), undefined);
   document.addEventListener('visibilitychange', () => {
@@ -266,6 +214,7 @@ export function mountApp(root: HTMLElement, game: Game): Ui {
 /** Shown when the game cannot start (e.g. a corrupt save that the loader rejects). */
 export function mountFatal(root: HTMLElement, err: unknown): void {
   console.error('Game failed to start', err);
+  mountStage(root);
   const wipe = (): void => {
     try {
       localStorage.removeItem(SAVE_KEY);
@@ -275,15 +224,24 @@ export function mountFatal(root: HTMLElement, err: unknown): void {
     location.reload();
   };
   mount(
-    root,
+    stageLayer('screens'),
     h(
       'div',
       { class: 'fatal' },
-      h('div', { class: 'empty-icon' }, '🕯️'),
-      h('h1', null, 'Oyun başlatılamadı'),
-      h('p', null, 'Kayıt dosyası okunamadı veya beklenmeyen bir hata oluştu.'),
-      h('pre', null, err instanceof Error ? err.message : String(err)),
-      h('div', { class: 'btn-row' }, h('button', { class: 'btn btn-secondary', attrs: { type: 'button' }, onClick: () => location.reload() }, 'Yeniden Dene'), h('button', { class: 'btn btn-danger', attrs: { type: 'button' }, onClick: wipe }, 'Kaydı Sil')),
+      h(
+        'div',
+        { class: 'panel fatal-panel' },
+        h('div', { class: 'empty-icon' }, icon('info', 72)),
+        h('h1', { class: 'display-title' }, 'Oyun başlatılamadı'),
+        h('p', null, 'Kayıt dosyası okunamadı veya beklenmeyen bir hata oluştu.'),
+        h('pre', null, err instanceof Error ? err.message : String(err)),
+        h(
+          'div',
+          { class: 'btn-row' },
+          h('button', { class: 'btn btn-secondary', attrs: { type: 'button' }, onClick: () => location.reload() }, h('span', { class: 'btn-main' }, h('span', { class: 'btn-label' }, 'Yeniden Dene'))),
+          h('button', { class: 'btn btn-danger', attrs: { type: 'button' }, onClick: wipe }, h('span', { class: 'btn-main' }, h('span', { class: 'btn-label' }, 'Kaydı Sil'))),
+        ),
+      ),
     ),
   );
 }

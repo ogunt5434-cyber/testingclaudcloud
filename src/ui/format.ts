@@ -1,20 +1,42 @@
 // Pure formatting helpers and Turkish display tables (no DOM access, unit-testable).
+// Icons are art icon names (src/art icon()), never emoji: emoji render inconsistently across platforms.
 import { STAT_INFO } from '../core/constants';
 import { PERCENT_STATS } from '../core/types';
-import type { ResourceKey, Rewards, StatKey } from '../core/types';
-import { EQUIP_SLOT_INFO, EQUIP_TIER_INFO, getEquipDef, isEquipId } from '../data/equipment';
+import type { EquipSlot, Faction, HeroClass, ResourceKey, Rewards, StatKey, StatusKind } from '../core/types';
+import type { IconName } from '../art/types';
+import { EQUIP_TIER_INFO, getEquipDef, isEquipId } from '../data/equipment';
 
-export const RESOURCE_INFO: Record<ResourceKey, { name: string; icon: string }> = {
-  gold: { name: 'Altın', icon: '🪙' },
-  spirit: { name: 'Ruh Özü', icon: '💠' },
-  gems: { name: 'Elmas', icon: '💎' },
-  basicScroll: { name: 'Temel Parşömen', icon: '📜' },
-  heroicScroll: { name: 'Kahraman Parşömeni', icon: '🎫' },
+export const RESOURCE_INFO: Record<ResourceKey, { name: string; icon: IconName }> = {
+  gold: { name: 'Altın', icon: 'gold' },
+  spirit: { name: 'Gök Taşı', icon: 'spirit' },
+  gems: { name: 'Yakut', icon: 'gem' },
+  basicScroll: { name: 'Temel Parşömen', icon: 'basicScroll' },
+  heroicScroll: { name: 'Kahraman Parşömeni', icon: 'heroicScroll' },
 };
 export const RESOURCE_ORDER: readonly ResourceKey[] = ['gold', 'spirit', 'gems', 'basicScroll', 'heroicScroll'];
 
-export const EXP_INFO = { name: 'Hesap Deneyimi', icon: '🌟' };
-export const POWER_ICON = '⚔️';
+export const EXP_INFO: { name: string; icon: IconName } = { name: 'Hesap Deneyimi', icon: 'playerExp' };
+export const POWER_ICON: IconName = 'power';
+
+export function factionIcon(faction: Faction): IconName {
+  return `faction-${faction}`;
+}
+
+export function classIcon(heroClass: HeroClass): IconName {
+  return `class-${heroClass}`;
+}
+
+/** Equipment slots share their names with the slot icons. */
+export function slotIcon(slot: EquipSlot): IconName {
+  return slot;
+}
+
+export function statusIcon(status: StatusKind): IconName {
+  return status;
+}
+
+/** Stat icons for the four primary stats (others have none). */
+export const STAT_ICON: Partial<Record<StatKey, IconName>> = { hp: 'hp', atk: 'atk', armor: 'def', spd: 'spd' };
 
 /** Frame colour per star count (index = stars). */
 export const RARITY_COLORS: readonly string[] = ['#8a8a8a', '#9e9e9e', '#63d07a', '#4fa3ff', '#b377ff', '#ffc94d'];
@@ -77,7 +99,7 @@ export function fmtBuff(key: StatKey, amount: number): string {
 
 export interface RewardEntry {
   key: string;
-  icon: string;
+  icon: IconName;
   name: string;
   amount: number;
   /** Optional accent colour (equipment tier). */
@@ -100,7 +122,7 @@ export function rewardEntries(rewards: Rewards | null | undefined): RewardEntry[
     const def = getEquipDef(id);
     rows.push({
       key: id,
-      icon: EQUIP_SLOT_INFO[def.slot].icon,
+      icon: slotIcon(def.slot),
       name: def.name,
       amount,
       color: EQUIP_TIER_INFO[def.tier]?.color,
@@ -109,10 +131,10 @@ export function rewardEntries(rewards: Rewards | null | undefined): RewardEntry[
   return rows;
 }
 
-/** One-line reward summary for toasts: "🪙 1200 · 💠 300". */
+/** One-line reward summary for toasts: "1200 Altın · 300 Gök Taşı". */
 export function rewardSummary(rewards: Rewards | null | undefined): string {
   return rewardEntries(rewards)
-    .map((r) => `${r.icon} ${fmtNum(r.amount)}`)
+    .map((r) => `${fmtNum(r.amount)} ${r.name}`)
     .join(' · ');
 }
 
@@ -167,3 +189,32 @@ export function hyphenateTr(text: string): string {
     })
     .join(' ');
 }
+
+/**
+ * Text from the game core (error messages) shown in the UI without pictographs: a star count written with
+ * a star glyph ("4" + U+2605) becomes "4 yıldızlı" and any remaining emoji / dingbat is dropped (they
+ * render as boxes on some systems).
+ */
+const cp = (...codes: number[]): string => String.fromCodePoint(...codes);
+/** A star glyph (black / white star, optional emoji variation selector) after a number. */
+const STAR_COUNT = new RegExp(`(\\d+)\\s*[${cp(0x2605, 0x2606)}]${cp(0xfe0f)}?`, 'gu');
+/** Arrows, technical symbols, geometric shapes, dingbats, misc symbols, variation selector, ZWJ, emoji. */
+const PICTOGRAPHS = new RegExp(
+  `[${cp(0x2190)}-${cp(0x21ff)}${cp(0x2300)}-${cp(0x23ff)}${cp(0x25a0)}-${cp(0x27bf)}${cp(0x2b00)}-${cp(0x2bff)}${cp(0xfe0f)}${cp(0x200d)}]|\\p{Extended_Pictographic}`,
+  'gu',
+);
+
+export function plainText(text: string): string {
+  return CORE_NAMES.reduce((t, [re, name]) => t.replace(re, name), text.replace(STAR_COUNT, '$1 yıldızlı'))
+    .replace(PICTOGRAPHS, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+/** Core messages use the resources' internal working names; the UI shows their display names. */
+const CORE_NAMES: readonly [RegExp, string][] = [
+  [/ruh özü/g, 'gök taşı'],
+  [/Ruh özü/g, 'Gök taşı'],
+  [/\belmas\b/g, 'yakut'],
+  [/\bElmas\b/g, 'Yakut'],
+];

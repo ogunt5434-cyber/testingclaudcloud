@@ -4,5 +4,5 @@ export * from './types';
 export { heroSprite, setSpriteAnim, heroPortrait } from './characters';
 export { icon, factionIconName } from './icons';
 export { sceneBackground } from './scenes';
-export { townScene } from './town';
+export { townScene, updateTownScene } from './town';
 export { playVfx } from './vfx';

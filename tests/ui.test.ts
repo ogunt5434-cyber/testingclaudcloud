@@ -11,8 +11,9 @@ import { HEROES } from '../src/data/heroes';
 import { BattleModel, refKey, replayAll } from '../src/ui/battle/model';
 import { delayAfter, totalDuration } from '../src/ui/battle/timing';
 import { progressBarWidth, rewardAmountText } from '../src/ui/components';
-import { fmtBuff, fmtDuration, fmtNum, fmtPercent, fraction, hyphenateTr, rewardEntries, rewardSummary, SOFT_HYPHEN } from '../src/ui/format';
-import { levelUpGems, levelUpText, saveNotice, starUpReady, starUpReadyUids } from '../src/ui/hints';
+import { fmtBuff, fmtDuration, fmtNum, fmtPercent, fraction, hyphenateTr, plainText, rewardEntries, rewardSummary, SOFT_HYPHEN } from '../src/ui/format';
+import { IDLE_BADGE_MS, levelUpGems, levelUpText, navBadges, saveNotice, starUpReady, starUpReadyUids } from '../src/ui/hints';
+import { BLEED_ART_X, STAGE_H, STAGE_W, fitStage, stageBleed, toStagePoint } from '../src/ui/stage';
 import { SLOT_BADGES, SLOT_LABELS } from '../src/ui/modals/formation';
 import { bestStockTier } from '../src/ui/modals/heroEquipment';
 import { towerBestText } from '../src/ui/screens/tower';
@@ -63,7 +64,19 @@ describe('format', () => {
     expect(rows.map((r) => r.key)).toEqual(['gold', 'gems', 'playerExp', 'weapon_t3']);
     expect(rows[3].color).toBeTruthy();
     expect(rewardEntries(null)).toEqual([]);
-    expect(rewardSummary({ resources: { gold: 12_345 } })).toBe('🪙 12.3K');
+    expect(rewardSummary({ resources: { gold: 12_345, gems: 20 } })).toBe('12.3K Altın · 20 Yakut');
+    // Rows carry art icon names (never emoji).
+    expect(rows.map((r) => r.icon)).toEqual(['gold', 'gem', 'playerExp', 'weapon']);
+  });
+
+  it('strips pictographs from core messages shown in toasts', () => {
+    expect(plainText('Yetersiz kopya: 2 adet 4★ Arslan gerekli.')).toBe('Yetersiz kopya: 2 adet 4 yıldızlı Arslan gerekli.');
+    expect(plainText('Tekrar Dene ↻')).toBe('Tekrar Dene');
+    expect(plainText('Toplandı: 12.3K Altın · 20 Yakut')).toBe('Toplandı: 12.3K Altın · 20 Yakut');
+    // core messages use the resources' working names; the UI shows the display names
+    expect(plainText('Yeterli altın veya ruh özü yok.')).toBe('Yeterli altın veya gök taşı yok.');
+    expect(plainText('Yeterli kahraman parşömeni veya elmas yok.')).toBe('Yeterli kahraman parşömeni veya yakut yok.');
+    expect(/\p{Extended_Pictographic}/u.test(plainText('Ateş 🔥 ☀️ hazır'))).toBe(false);
   });
 
   it('clamps fractions', () => {
@@ -117,7 +130,7 @@ describe('progression hints', () => {
     const exp = playerExpToNext(1) + playerExpToNext(2) + 5;
     expect(grantPlayerExp(state, exp)).toBe(2);
     expect(levelUpGems(1, 3)).toBe(state.resources.gems - gemsBefore);
-    expect(levelUpText(1, 3)).toBe(`Hesap seviyesi 3! +${state.resources.gems - gemsBefore} 💎`);
+    expect(levelUpText(1, 3)).toBe(`Hesap seviyesi 3! +${state.resources.gems - gemsBefore} Yakut`);
     expect(levelUpText(3, 3)).toBeNull();
     expect(levelUpText(5, 1)).toBeNull();
     expect(levelUpGems(4, 4)).toBe(0);
@@ -391,5 +404,117 @@ describe('page shell', () => {
     const textInput = /\n\.text-input\s*\{([^}]*)\}/.exec(styleCss)?.[1] ?? '';
     const size = /font-size:\s*(\d+)px/.exec(textInput)?.[1];
     expect(Number(size)).toBeGreaterThanOrEqual(16);
+  });
+});
+
+describe('stage', () => {
+  const close = (a: number, b: number): void => expect(Math.abs(a - b)).toBeLessThan(1e-6);
+
+  it('scales the 1280x720 stage uniformly and centres it (letterbox)', () => {
+    const big = fitStage(1920, 1080);
+    expect(big).toMatchObject({ rotated: false, x: 0, y: 0 });
+    close(big.scale, 1.5);
+    const phone = fitStage(844, 390);
+    expect(phone.rotated).toBe(false);
+    close(phone.scale, 390 / STAGE_H);
+    close(phone.x, (844 - STAGE_W * phone.scale) / 2);
+    close(phone.y, 0);
+    const tall = fitStage(1280, 1000);
+    close(tall.scale, 1);
+    close(tall.y, 140);
+  });
+
+  it('turns the stage 90° in a portrait viewport so it fills the screen sideways', () => {
+    const fit = fitStage(390, 844);
+    expect(fit.rotated).toBe(true);
+    close(fit.scale, Math.min(844 / STAGE_W, 390 / STAGE_H));
+    // stage corners land inside the viewport: top-left at the top-right of the screen
+    const s = fit.scale;
+    const toScreen = (x: number, y: number): [number, number] => [fit.x - y * s, fit.y + x * s];
+    const corners = [toScreen(0, 0), toScreen(STAGE_W, 0), toScreen(0, STAGE_H), toScreen(STAGE_W, STAGE_H)];
+    for (const [x, y] of corners) {
+      expect(x).toBeGreaterThanOrEqual(-1e-6);
+      expect(x).toBeLessThanOrEqual(390 + 1e-6);
+      expect(y).toBeGreaterThanOrEqual(-1e-6);
+      expect(y).toBeLessThanOrEqual(844 + 1e-6);
+    }
+    // and the inverse mapping brings screen points back to stage px
+    for (const [sx, sy] of [[0, 0], [STAGE_W, STAGE_H], [640, 360], [100, 600]]) {
+      const [px, py] = toScreen(sx, sy);
+      const back = toStagePoint(fit, px, py);
+      close(back.x, sx);
+      close(back.y, sy);
+    }
+  });
+
+  it('measures the full bleed: a wide phone gets painted sides and HUD corners on the real screen edges', () => {
+    const fit = fitStage(844, 390);
+    const b = stageBleed(fit, { left: 0, top: 0, right: 844, bottom: 390 });
+    const side = (844 / fit.scale - STAGE_W) / 2;
+    expect(b.bleedX).toBeCloseTo(side, 1);
+    expect(b.bleedY).toBe(0);
+    expect(b.edgeL).toBeCloseTo(side, 1);
+    expect(b.edgeR).toBeCloseTo(side, 1);
+    // a 16:9 screen has no bleed at all
+    expect(stageBleed(fitStage(1920, 1080), { left: 0, top: 0, right: 1920, bottom: 1080 })).toEqual({ bleedX: 0, bleedY: 0, edgeL: 0, edgeR: 0, edgeT: 0, edgeB: 0 });
+    // a notch on the left: the art still bleeds to the screen edge, the HUD stops at the safe area
+    const safe = { left: 44, top: 0, right: 844, bottom: 390 };
+    const notched = fitStage(800, 390);
+    notched.x += 44;
+    const n = stageBleed(notched, { left: 0, top: 0, right: 844, bottom: 390 }, safe);
+    expect(n.edgeL).toBeLessThan(n.bleedX);
+    expect(n.edgeL).toBeCloseTo((800 / notched.scale - STAGE_W) / 2, 1);
+    // ultra-wide monitors are capped at the painted bleed
+    expect(stageBleed(fitStage(3440, 1000), { left: 0, top: 0, right: 3440, bottom: 1000 }).bleedX).toBe(BLEED_ART_X);
+  });
+
+  it('measures the bleed along the long side of a rotated (portrait) phone', () => {
+    const fit = fitStage(390, 844);
+    const b = stageBleed(fit, { left: 0, top: 0, right: 390, bottom: 844 });
+    expect(b.bleedX).toBeCloseTo((844 / fit.scale - STAGE_W) / 2, 1);
+    expect(b.bleedY).toBeCloseTo(0, 1);
+  });
+
+  it('maps pointer positions back to stage px without rotation too', () => {
+    const fit = fitStage(1600, 1000);
+    const p = toStagePoint(fit, fit.x + 640 * fit.scale, fit.y + 360 * fit.scale);
+    close(p.x, 640);
+    close(p.y, 360);
+  });
+});
+
+describe('navigation badges', () => {
+  it('lights the campaign after an hour of idle loot, summon with scrolls, heroes when a star-up is ready', () => {
+    const state = newGameState(0);
+    expect(navBadges(state, IDLE_BADGE_MS - 1).campaign).toBe(false);
+    expect(navBadges(state, IDLE_BADGE_MS).campaign).toBe(true);
+    expect(navBadges(state, 0).summon).toBe(state.resources.basicScroll > 0 || state.resources.heroicScroll > 0);
+    const empty: GameState = { ...state, resources: { ...state.resources, basicScroll: 0, heroicScroll: 0 } };
+    expect(navBadges(empty, 0).summon).toBe(false);
+    expect(navBadges(state, 0).heroes).toBe(starUpReadyUids(state).size > 0);
+  });
+});
+
+describe('no emoji in the UI', () => {
+  // SPEC §6: emoji render inconsistently (e.g. a missing-glyph box on Windows); the UI uses art icons.
+  const EMOJI = /\p{Extended_Pictographic}/u;
+  const owned = import.meta.glob(['../src/ui/**/*.ts', '../src/ui/**/*.css', '../src/main.ts'], {
+    query: '?raw',
+    import: 'default',
+    eager: true,
+  }) as Record<string, string>;
+
+  it('finds the UI sources', () => {
+    expect(Object.keys(owned).length).toBeGreaterThan(30);
+    expect(Object.keys(owned).some((name) => name.endsWith('battle/view.ts'))).toBe(true);
+    expect(Object.keys(owned).some((name) => name.endsWith('battle/battle.css'))).toBe(true);
+  });
+
+  it('has no emoji in UI code, the stylesheet or the page shell', () => {
+    const files: [string, string][] = [...Object.entries(owned), ['src/style.css', styleCss], ['index.html', indexHtml]];
+    for (const [name, text] of files) {
+      const line = text.split('\n').findIndex((l) => EMOJI.test(l));
+      expect(line, `${name}:${line + 1}`).toBe(-1);
+    }
   });
 });

@@ -3,9 +3,10 @@ import type { Game } from '../core/game';
 import type { ActionResult } from '../core/types';
 import type { ToastKind } from './toast';
 
-export type TabId = 'campaign' | 'heroes' | 'summon' | 'tower';
+/** 'hub' is the town (home); the others are full-stage screens with a back button to the hub. */
+export type TabId = 'hub' | 'campaign' | 'heroes' | 'summon' | 'tower';
 
-/** A tab screen. `render` rebuilds it from game state; show/hide start/stop live timers. */
+/** A screen. `render` rebuilds it from game state; show/hide start/stop live timers. */
 export interface Screen {
   readonly el: HTMLElement;
   render(): void;

@@ -1,4 +1,5 @@
-// "Gelişim" tab of the hero detail: stats table, level up (+1 / +10 / Maks) and star up.
+// "Gelişim" tab of the hero detail: stats, level up (+1 / +10 / Maks) and star up.
+import { icon, type IconName } from '../../art';
 import { MAX_STARS, STAT_INFO } from '../../core/constants';
 import { affordableLevels, findStarUpFodder, levelCap, levelRangeCost, starUpRequirement } from '../../core/progression';
 import type { ActionResult, HeroInstance, Resources, StatKey, Stats } from '../../core/types';
@@ -10,15 +11,15 @@ import { fmtStat, fraction } from '../format';
 import { confirmDialog } from '../overlay';
 import type { DetailCtx } from './heroDetail';
 
-const PRIMARY: { key: StatKey; icon: string }[] = [
-  { key: 'hp', icon: '❤️' },
-  { key: 'atk', icon: '⚔️' },
-  { key: 'armor', icon: '🛡️' },
-  { key: 'spd', icon: '💨' },
+const PRIMARY: { key: StatKey; icon: IconName }[] = [
+  { key: 'hp', icon: 'hp' },
+  { key: 'atk', icon: 'atk' },
+  { key: 'armor', icon: 'def' },
+  { key: 'spd', icon: 'spd' },
 ];
 const SECONDARY: StatKey[] = ['crit', 'critDmg', 'hit', 'dodge', 'skillDmg', 'dmgReduce', 'controlImmune', 'armorBreak'];
 
-/** Runs an action with a portrait flash on success. */
+/** Runs an action with a celebration on the hero on success. */
 function act<T>(ctx: DetailCtx, kind: 'level' | 'star', action: () => ActionResult<T>, success: string | ((v: T) => string)): void {
   ctx.flash(kind);
   if (!runAction(ctx.ui, action, success)) ctx.flash(null);
@@ -32,17 +33,11 @@ function statsCard(stats: Stats): HTMLElement {
     h(
       'div',
       { class: 'stat-grid' },
-      PRIMARY.map(({ key, icon }) =>
-        h('div', { class: 'stat-big' }, h('span', { class: 'stat-icon' }, icon), h('span', { class: 'stat-name' }, STAT_INFO[key].name), h('span', { class: 'stat-value' }, fmtStat(key, stats[key]))),
+      PRIMARY.map(({ key, icon: ic }) =>
+        h('div', { class: 'stat-big' }, icon(ic, 36), h('span', { class: 'stat-text' }, h('span', { class: 'stat-name' }, STAT_INFO[key].name), h('span', { class: 'stat-value' }, fmtStat(key, stats[key])))),
       ),
     ),
-    secondary.length
-      ? h(
-          'div',
-          { class: 'stat-list' },
-          secondary.map((key) => statRow(key, stats[key])),
-        )
-      : null,
+    secondary.length ? h('div', { class: 'stat-list' }, secondary.map((key) => statRow(key, stats[key]))) : null,
     h('p', { class: 'note' }, 'Pasif yetenek bonusları savaşta eklenir.'),
   );
 }
@@ -52,8 +47,8 @@ function canPay(cost: { gold: number; spirit: number }, res: Readonly<Resources>
 }
 
 /**
- * +1 / +10 / Maks level buttons with their costs. The hero sheet pins them in its footer while the
- * "Gelişim" tab is open, so the most used action never scrolls out of view.
+ * +1 / +10 / Maks level buttons with their costs. The hero panel pins them under the tab while
+ * "Gelişim" is open, so the most used action never scrolls out of view.
  */
 export function levelButtons(ctx: DetailCtx): HTMLElement {
   const { hero, ui } = ctx;
@@ -70,15 +65,15 @@ export function levelButtons(ctx: DetailCtx): HTMLElement {
     return button(
       label,
       () => act(ctx, 'level', () => ui.game.levelUp(hero.uid, target - hero.level), (v) => `${name} +${v.gained} seviye!`),
-      { variant: 'primary', disabled, sub: atCap ? '—' : costView(cost, res), class: 'btn-level' },
+      { variant: 'primary', disabled, sub: atCap ? 'Sınırda' : costView(cost, res), class: 'btn-level' },
     );
   };
 
   return h(
     'div',
     { class: 'btn-row three level-buttons' },
-    levelButton('+1', 1, true),
-    levelButton('+10', 10, true),
+    levelButton('Seviye +1', 1, true),
+    levelButton('Seviye +10', 10, true),
     levelButton(affordable > 0 ? `Maks +${affordable}` : 'Maks', affordable, false),
   );
 }
@@ -91,7 +86,7 @@ function levelCard(ctx: DetailCtx): HTMLElement {
 
   let reason: string | null = null;
   if (atCap) reason = hero.stars < MAX_STARS ? 'Seviye sınırına ulaşıldı — sınırı artırmak için yıldız yükselt.' : 'Maksimum seviyeye ulaşıldı!';
-  else if (affordable === 0) reason = 'Yetersiz altın veya ruh özü.';
+  else if (affordable === 0) reason = 'Yetersiz altın veya gök taşı.';
 
   return h(
     'div',
@@ -103,7 +98,7 @@ function levelCard(ctx: DetailCtx): HTMLElement {
 }
 
 function requirementLine(ok: boolean, text: string): HTMLElement {
-  return h('div', { class: ['req', ok ? 'ok' : 'missing'] }, h('span', { class: 'req-mark' }, ok ? '✔' : '✖'), text);
+  return h('div', { class: ['req', ok ? 'ok' : 'missing'] }, h('span', { class: 'req-mark', attrs: { 'aria-label': ok ? 'Tamam' : 'Eksik', role: 'img' } }), text);
 }
 
 async function confirmStarUp(ctx: DetailCtx, fodder: string[]): Promise<void> {
@@ -115,12 +110,12 @@ async function confirmStarUp(ctx: DetailCtx, fodder: string[]): Promise<void> {
     message: h(
       'div',
       { class: 'starup-confirm' },
-      h('p', null, `${def.name} ${hero.stars + 1}★ olacak. Şu kopyalar tüketilecek:`),
+      h('p', null, `${def.name} ${hero.stars + 1} yıldız olacak. Şu kopyalar tüketilecek:`),
       h('div', { class: 'fodder-row' }, fodder.map((uid) => fodderChip(ui.game.hero(uid)))),
       h('p', { class: 'muted' }, 'Kopyaların seviye maliyetleri iade edilir, ekipmanları depoya döner.'),
     ),
   });
-  if (ok) act(ctx, 'star', () => ui.game.starUp(hero.uid), `${def.name} ${hero.stars + 1}★ oldu!`);
+  if (ok) act(ctx, 'star', () => ui.game.starUp(hero.uid), `${def.name} ${hero.stars + 1} yıldız oldu!`);
 }
 
 function fodderChip(hero: HeroInstance | undefined): HTMLElement | null {
@@ -145,12 +140,20 @@ function starCard(ctx: DetailCtx): HTMLElement {
   return h(
     'div',
     { class: 'card star-card' },
-    sectionTitle('Yıldız Yükselt', h('span', { class: 'star-arrow' }, starRow(hero.stars), ' ➜ ', starRow(hero.stars + 1))),
-    requirementLine(levelOk, `Seviye ${req.levelRequired} (şu an ${hero.level})`),
-    requirementLine(fodderOk, `${req.fodderCount}× aynı kahraman, ${hero.stars}★ — uygun: ${fodder.length}`),
-    h('div', { class: 'fodder-row' }, slots),
-    h('p', { class: 'note' }, `Yeni seviye sınırı: ${levelCap(hero.stars + 1)}. Kilitli ve takımdaki kopyalar kullanılmaz.`),
-    button('⭐ Yıldız Yükselt', () => void confirmStarUp(ctx, used), { variant: 'gold', disabled: !(levelOk && fodderOk), class: 'btn-block' }),
+    sectionTitle('Yıldız Yükselt', h('span', { class: 'star-arrow' }, starRow(hero.stars, undefined, 16), h('span', { class: 'arrow-right' }, icon('back', 20)), starRow(hero.stars + 1, undefined, 16))),
+    h(
+      'div',
+      { class: 'star-body' },
+      h(
+        'div',
+        { class: 'star-reqs' },
+        requirementLine(levelOk, `Seviye ${req.levelRequired} (şu an ${hero.level})`),
+        requirementLine(fodderOk, `${req.fodderCount}× aynı kahraman, ${hero.stars} yıldız — uygun: ${fodder.length}`),
+        h('p', { class: 'note' }, `Yeni seviye sınırı: ${levelCap(hero.stars + 1)}. Kilitli ve takımdaki kopyalar kullanılmaz.`),
+      ),
+      h('div', { class: 'fodder-row' }, slots),
+    ),
+    button('Yıldız Yükselt', () => void confirmStarUp(ctx, used), { variant: 'gold', icon: 'star', disabled: !(levelOk && fodderOk), class: 'btn-block' }),
   );
 }
 
